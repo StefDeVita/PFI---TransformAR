@@ -1,0 +1,43 @@
+# ==== Python ====
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ==== Entornos virtuales ====
+venv/
+.env/
+.venv/
+
+# ==== Archivos temporales ====
+*.log
+*.tmp
+*.bak
+
+# ==== Archivos de sistema ====
+.DS_Store
+Thumbs.db
+
+# ==== IDEs ====
+.idea/
+.vscode/
+
+# ==== Salidas del proyecto ====
+output/
+docs/*.pdf
+docs/*.jpg
+docs/*.png
+docs/*.docx
+docs/*.xlsx
+
+# ==== Datos intermedios ====
+input/*.pdf
+input/*.jpg
+input/*.png
+
+# ==== Modelos y datos pesados ====
+*.bin
+*.h5
+*.pth
+*.pt
+*.joblib
+*.pickle

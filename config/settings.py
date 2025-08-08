@@ -1,0 +1,1 @@
+SPACY_MODEL = "es_core_news_md"

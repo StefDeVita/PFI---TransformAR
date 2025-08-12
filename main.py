@@ -1,8 +1,7 @@
 from config.settings import SPACY_MODEL
 from input.docling_reader import extract_text_with_layout
-from nlp.pipeline import process_text
-from nlp.pipeline import interpret_instructions
-
+from nlp.pipeline import process_text, interpret_instructions
+from nlp.apply_plan import execute_plan
 
 
 def main():
@@ -14,26 +13,50 @@ def main():
         raw_text = extract_text_with_layout(file_path)
     except Exception as e:
         print(f"⚠️ Docling falló: {e}")
-        raw_text = "Factura 001 — Cliente: YPF — Fecha: 06/08/2025 — Monto: 1.250,00 USD — Descripción: Bomba centrífuga"
+        raw_text = """
+        Orden de compra N° 4589
+        Fecha: 14/07/2025
 
-    # === 2. Procesamiento NLP ===
-    extracted_data = process_text(raw_text, SPACY_MODEL)
-    print("\n🔍 Datos extraídos (NLP):")
-    print(extracted_data)
+        Proveedor: Industrias Metalúrgicas Delta S.A.
+        Dirección: Av. San Martín 2450, Córdoba, Argentina
 
-    print("\n🧠 Demo intérprete de instrucciones (spaCy)")
+        Descripción: Bomba centrífuga de acero inoxidable para uso industrial
+        Largo: 2.5 m
+        Ancho: 60 cm
+
+        Monto total: 25.400,75
+        Moneda: ARS
+        """
+    # === 2. Procesamiento NLP para extraer datos ===
+    current_data = process_text(raw_text, SPACY_MODEL)
+    print("\n🔍 Datos extraídos (NLP) iniciales:")
+    print(current_data)
+
+    # === 3. Procesamiento de instrucciones ===
+    print("\n🧠 Aplicando instrucciones en cadena (spaCy)")
     instrucciones = [
-        'Unificá largo y ancho a mm y exportá a CSV.',
-        'Poné la fecha en formato DD/MM/AAAA y traducí "Descripción" al inglés.',
-        'Renombrá "Descripción" a "description" y "Cliente" a "customer".',
-        'Filtrá donde cliente = "YPF" y pasá el importe a USD.',
-        'descripciones de los items en aleman'
+        "Poné la fecha en formato AAAA/MM/DD.",
+        "Convertí el largo y el ancho a milímetros.",
+        "Traducí la descripción al inglés.",
+        "Convertí el monto a USD.",
+        "Renombrá 'Proveedor' como 'company' y 'Descripción' como 'product_description'.",
+        "Filtrá para que solo pasen los registros donde la moneda sea ARS."
     ]
+
     for i, txt in enumerate(instrucciones, 1):
         plan, report = interpret_instructions(txt, SPACY_MODEL)
         print(f"\n#{i} Instrucción: {txt}")
         print("Plan:", plan)
         print("Reporte:", report)
+
+        # === 4. Aplicar el plan sobre el resultado actual ===
+        current_data = execute_plan(current_data, plan)
+        print("✅ Resultado después de aplicar esta instrucción:")
+        print(current_data)
+
+    # === 5. Resultado final después de todas las instrucciones ===
+    print("\n🎯 Resultado final después de aplicar todas las instrucciones:")
+    print(current_data)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,200 @@
+- name: convert_mm_and_export_csv
+  input: Unificá largo y ancho a mm y exportá a CSV.
+  expect:
+    ops:
+      - op: convert_units
+        target_unit: mm
+        columns_contains: [largo, ancho]
+      - op: export
+        format: csv
+
+- name: format_date_and_translate
+  input: Poné la fecha en formato DD/MM/AAAA y traducí "Descripción" al inglés.
+  expect:
+    ops:
+      - op: format_date
+        output_fmt: "%d/%m/%Y"
+        column_any_of: [fecha, fec, date, "Descripción"]
+      - op: translate_values
+        target_lang: EN
+        columns_contains: ["Descripción"]
+
+- name: rename_pairs
+  input: Renombrá "Descripción" a "description" y "Cliente" a "customer".
+  expect:
+    ops:
+      - op: rename_columns
+        map_contains:
+          Descripción: description
+          Cliente: customer
+
+- name: filter_eq_and_usd
+  input: Filtrá donde cliente = "YPF" y pasá el importe a USD.
+  expect:
+    ops:
+      - op: filter_equals
+        column: cliente
+        value: YPF
+      - op: currency_to
+        target: USD
+        columns_any_of: [monto, importe, total]
+
+# --- Nominal (sin verbo) ---
+- name: nominal_translate_desc_de
+  input: descripciones de los items en aleman
+  expect:
+    ops:
+      - op: translate_values
+        target_lang: DE
+        columns_any_of: [descripcion, descripción, detalle, detalles, concepto]
+
+- name: nominal_amounts_usd
+  input: montos en usd
+  expect:
+    ops:
+      - op: currency_to
+        target: USD
+        columns_any_of: [monto, importe, total]
+
+- name: nominal_dates_iso
+  input: fechas en iso
+  expect:
+    ops:
+      - op: format_date
+        output_fmt: "%Y-%m-%d"
+
+- name: nominal_measures_inch
+  input: dimensiones en pulgadas
+  expect:
+    ops:
+      - op: convert_units
+        target_unit: in
+        columns_any_of: [largo, ancho, alto, medidas, dimensiones]
+
+- name: nominal_export_xlsx
+  input: salida xlsx
+  expect:
+    ops:
+      - op: export
+        format: xlsx
+
+# --- Filtros varios ---
+- name: filter_contains
+  input: Mostrar donde descripción contiene "bomba".
+  expect:
+    ops:
+      - op: filter_contains
+        column: descripción
+        value: bomba
+
+- name: filter_gt_number
+  input: Filtrar monto > 1000.
+  expect:
+    ops:
+      - op: filter_compare
+        column: monto
+        op: ">"
+        value_like_number: true
+
+- name: filter_between_dates
+  input: fecha entre 01/01/2024 y 31/12/2024
+  expect:
+    ops:
+      - op: filter_between
+        range_len: 2
+
+# --- Unidades robustas ---
+- name: inch_with_number
+  input: Convertí 3" a mm
+  expect:
+    ops:
+      - op: convert_units
+        target_unit: mm
+
+- name: inch_without_number_should_not_trigger
+  input: Filtrá cliente = "YPF"
+  expect:
+    ops:
+      - op: filter_equals
+        column: cliente
+        value: YPF
+    forbid_ops: [convert_units]
+
+- name: convert_dest_no_number_ok
+  input: Normalizá a cm y exportá a Excel
+  expect:
+    ops:
+      - op: convert_units
+        target_unit: cm
+      - op: export
+        format: xlsx
+
+# --- Formatos fecha variantes ---
+- name: date_us_format
+  input: Formateá a mm/dd/yyyy
+  expect:
+    ops:
+      - op: format_date
+        output_fmt: "%m/%d/%Y"
+
+- name: date_eu_format_voseo
+  input: poné la fecha en formato dd/mm/aaaa
+  expect:
+    ops:
+      - op: format_date
+        output_fmt: "%d/%m/%Y"
+
+# --- Traducción variantes ---
+- name: translate_with_quotes_multiple_cols
+  input: Traducí "Detalle" y "Observación" al inglés.
+  expect:
+    ops:
+      - op: translate_values
+        target_lang: EN
+        columns_contains: ["Detalle", "Observación"]
+
+- name: translate_nominal_portuguese
+  input: descripcion en portugués
+  expect:
+    ops:
+      - op: translate_values
+        target_lang: PT
+        columns_any_of: [descripcion, descripción, detalle]
+
+# --- Rename parcial tolerante ---
+- name: rename_single_pair
+  input: Renombrar "IMP." a "importe"
+  expect:
+    ops:
+      - op: rename_columns
+        map_contains:
+          IMP.: importe
+
+# --- Export variantes ---
+- name: export_explicit_excel
+  input: exportar a excel
+  expect:
+    ops:
+      - op: export
+        format: xlsx
+
+- name: export_csv_keyword_only
+  input: csv
+  expect:
+    ops:
+      - op: export
+        format: csv
+
+# --- Combinaciones ---
+- name: combo_units_filter_export
+  input: Unificá largo y alto a mm; donde cliente = "Acme"; export xlsx
+  expect:
+    ops:
+      - op: convert_units
+        target_unit: mm
+        columns_contains: [largo, alto]
+      - op: filter_equals
+        column: cliente
+        value: Acme
+      - op: export
+        format: xlsx

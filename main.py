@@ -15,7 +15,7 @@ def main():
         print(f"⚠️ Docling falló: {e}")
         raw_text = """
         Factura N° 1023
-        Fecha emisión: 8/8/2025
+        Fecha emisión: 8/30/2025
         Cliente: Compañía TecnoNova S.A.
         Descripción: Máquina cortadora de precisión con accesorios incluidos
         Largo: 1.2 m

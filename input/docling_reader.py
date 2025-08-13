@@ -1,30 +1,81 @@
 # input/docling_reader.py
-
-from docling.document_converter import DocumentConverter
+from __future__ import annotations
 import os
+from typing import Optional, List
 
-def extract_text_with_layout(file_path):
+from config.settings import (
+    DOCLING_DO_OCR,
+    DOCLING_FORCE_FULL_PAGE_OCR,
+    DOCLING_OCR_LANGS,
+)
+
+def extract_text_with_layout(file_path: str) -> str:
+    """
+    Extrae texto de PDF usando EXCLUSIVAMENTE Docling con OCR de Tesseract.
+    - Activa OCR y detección automática de idioma (lang=["auto"]) o lista fija.
+    - Usa force_full_page_ocr=True para PDFs escaneados/mixtos.
+    - Exporta a Markdown (estructura simple por páginas/bloques).
+    """
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"No se encontró el archivo: {file_path}")
 
-    converter = DocumentConverter()
-    doc = converter.convert(file_path)  # sin type-hint de Document
+    try:
+        from pathlib import Path
+        from docling.datamodel.base_models import InputFormat
+        from docling.datamodel.pipeline_options import (
+            PdfPipelineOptions,
+            TesseractCliOcrOptions,
+        )
+        from docling.document_converter import DocumentConverter, PdfFormatOption
+    except Exception as e:
+        raise ImportError(
+            "Docling no está instalado o su API no está disponible. "
+            "Instalá con: pip install docling"
+        ) from e
 
-    # Algunas versiones devuelven un objeto con .pages, otras con .document.pages
-    pages = getattr(doc, "pages", None)
-    if pages is None and hasattr(doc, "document"):
-        pages = getattr(doc.document, "pages", None)
-    if pages is None:
-        raise RuntimeError("Docling: no se encontraron páginas en el objeto convertido.")
+    # Configurar OCR de Tesseract con detección automática o lista fija de idiomas
+    ocr_options = TesseractCliOcrOptions(lang=DOCLING_OCR_LANGS)
 
-    text_blocks = []
-    for page in pages:
-        # idem: diferentes builds pueden tener .blocks o .elements
-        blocks = getattr(page, "blocks", None) or getattr(page, "elements", [])
-        for block in blocks:
-            text = getattr(block, "text", "") or getattr(block, "content", "")
-            text = (text or "").strip()
-            if text:
-                text_blocks.append(text)
+    pipeline_options = PdfPipelineOptions(
+        do_ocr=DOCLING_DO_OCR,
+        force_full_page_ocr=DOCLING_FORCE_FULL_PAGE_OCR,
+        ocr_options=ocr_options,
+    )
 
-    return "\n".join(text_blocks)
+    converter = DocumentConverter(
+        format_options={
+            InputFormat.PDF: PdfFormatOption(
+                pipeline_options=pipeline_options,
+            )
+        }
+    )
+
+    # Convertir y exportar a Markdown (suele ser lo más práctico para NLP posterior)
+    result = converter.convert(Path(file_path))
+    # Según la API actual, el documento está en .document
+    doc = getattr(result, "document", None) or result
+    try:
+        md = doc.export_to_markdown()
+    except Exception:
+        # Fallback: intentar páginas -> blocks/elements -> text
+        pages = getattr(doc, "pages", None)
+        parts: List[str] = []
+        if pages:
+            for i, page in enumerate(pages, start=1):
+                blocks = getattr(page, "blocks", None) or getattr(page, "elements", []) or []
+                lines = []
+                for b in blocks:
+                    t = getattr(b, "text", "") or getattr(b, "content", "") or ""
+                    t = (t or "").strip()
+                    if t:
+                        lines.append(t)
+                if lines:
+                    parts.append(f"=== Página {i} ===\n" + "\n".join(lines))
+            if parts:
+                return "\n\n".join(parts).strip()
+
+        # Último intento: atributos de texto planos
+        md = getattr(doc, "text", "") or getattr(doc, "content", "") or ""
+
+    md = (md or "").strip()
+    return md

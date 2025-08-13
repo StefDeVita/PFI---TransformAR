@@ -4,7 +4,6 @@ import spacy
 from nlp.patterns import add_custom_patterns
 from nlp.instruction_spacy import build_nlp, interpret_with_spacy
 
-# Inicializamos solo una vez
 _SPACY_MODELS = {}
 
 def get_nlp(model_name: str):
@@ -14,107 +13,146 @@ def get_nlp(model_name: str):
         _SPACY_MODELS[model_name] = nlp
     return _SPACY_MODELS[model_name]
 
+# -----------------------
+# Helpers de extracción
+# -----------------------
+LABELS = {
+    "cliente": [r"cliente", r"destinatario", r"atenci[oó]n", r"contacto"],
+    "company": [r"proveedor", r"empresa", r"raz[oó]n\s+social", r"emisor", r"remitente"],
+    "fecha":   [r"fecha"],
+    "monto":   [r"monto(?:\s+total)?", r"total(?:\s+general)?", r"importe"],
+    "moneda":  [r"moneda", r"divisa"],
+    "descripcion": [r"descripci[oó]n", r"concepto", r"detalle"]
+}
+
+DATE_REGEX = r"(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}|\d{1,2}\s+\w+\s+\d{4}|\d{4}[\/\-.]\d{1,2}[\/\-.]\d{1,2})"
+
+def _norm(s: str) -> str:
+    return re.sub(r"\s+", " ", s).strip()
+
+def _find_label_value(text: str, variants) -> str | None:
+    # Busca línea a línea: label: valor
+    for v in variants:
+        pat = re.compile(rf"(?im)^\s*(?:{v})\s*[:\-]\s*(.+)$")
+        m = pat.search(text)
+        if m:
+            return _norm(m.group(1))
+    return None
+
+def _find_date_anywhere(text: str) -> str | None:
+    m = re.search(DATE_REGEX, text)
+    return _norm(m.group(1)) if m else None
+
+def _find_amount(text):
+    """
+    Devuelve (monto_str, moneda_str).
+    Normaliza separadores de miles y decimales.
+    """
+    import re
+
+    monto = None
+    div_line = None
+
+    # Regex flexible: captura número y divisa opcional con espacios
+    m = re.search(
+        r"(?im)^\s*(?:monto(?:\s+total)?|total|importe|precio(?:\s+total)?)\s*[:\-]?\s*([\d\.,]+)\s+?([A-Z]{2,3}|USD|EUR|ARS|MXN|\$|€)?\s*$",
+        text
+    )
+
+    if m:
+        raw_amount = m.group(1)
+        raw_amount = raw_amount.replace(".", "").replace(",", ".")
+        try:
+            monto = str(float(raw_amount))
+        except:
+            monto = raw_amount
+        div_line = m.group(2).upper() if m.group(2) else None
+
+    # Moneda en línea separada
+    mon = _find_label_value(text, LABELS["moneda"])
+    mon = mon.upper() if mon else None
+
+    # Map símbolos
+    code_map = {"$": "ARS", "€": "EUR", "USD": "USD"}
+    if div_line in code_map:
+        div_line = code_map[div_line]
+
+    moneda = mon or div_line or "ARS"  # default ARS
+    return monto, moneda
+
 
 def extract_dimensions_from_text(text):
-    """Extrae ancho y largo del texto."""
+    """Extrae dimensiones y peso del texto."""
     dims = {}
-
-    # Buscar largo
-    largo_match = re.search(r"(?i)\bLargo\s*[:\-]?\s*([\d.,]+\s?(mm|cm|m))", text)
-    if largo_match:
-        dims["largo"] = largo_match.group(1).strip()
-
-    # Buscar ancho
-    ancho_match = re.search(r"(?i)\bAncho\s*[:\-]?\s*([\d.,]+\s?(mm|cm|m))", text)
-    if ancho_match:
-        dims["ancho"] = ancho_match.group(1).strip()
-
+    patterns = {
+        "largo": r"\bLargo\s*[:\-]?\s*([\d.,]+\s?(mm|cm|m|in))",
+        "ancho": r"\bAncho\s*[:\-]?\s*([\d.,]+\s?(mm|cm|m|in))",
+        "alto": r"\bAlto\s*[:\-]?\s*([\d.,]+\s?(mm|cm|m|in))",
+        "peso": r"\bPeso\s*[:\-]?\s*([\d.,]+\s?(kg|g|lb))"
+    }
+    for k, p in patterns.items():
+        m = re.search(p, text, flags=re.I)
+        if m:
+            dims[k] = _norm(m.group(1))
     return dims
 
-
-
+# -----------------------
+# Pipeline principal
+# -----------------------
 def process_text(text: str, model_name: str):
-    """Extrae entidades del documento y mapea campos clave usando spaCy + fallback regex."""
+    """
+    1) Extrae campos por cabeceras (robusto y general).
+    2) Completa con NER solo si faltan datos.
+    3) Extrae dimensiones como apoyo.
+    """
     nlp = get_nlp(model_name)
     doc = nlp(text)
 
-    # --- Diccionario de mapeo spaCy -> campos ---
-    FIELD_MAPPING = {
-        "ORG": "company",
-        "PER": "cliente",       # Persona física como cliente
-        "MONEY": "monto",
-        "DATE": "fecha",
-        "PRODUCT": "descripcion"  # Si agregamos esta etiqueta en patrones
-    }
-
-    # --- Estructura inicial ---
     structured = {
-        "factura": None,
-        "cliente": None,
-        "company": None,
+        "company": None,      # Proveedor/Empresa/Razón social/Emisor
+        "cliente": None,      # Cliente/Destinatario
+        "person": None,       # Persona (si aparece una PER y 'cliente' no está)
         "fecha": None,
         "monto": None,
+        "moneda": None,
         "descripcion": None
     }
 
-    # --- Detectar dimensiones ---
-    dims = extract_dimensions_from_text(text)
-    structured.update(dims)
+    # 1) Cabeceras primero (alta precisión)
+    structured["cliente"] = _find_label_value(text, LABELS["cliente"])
+    structured["company"] = _find_label_value(text, LABELS["company"])
+    structured["descripcion"] = _find_label_value(text, LABELS["descripcion"])
 
-    # --- 1) Poblar desde spaCy ---
-    for ent in doc.ents:
-        key = FIELD_MAPPING.get(ent.label_)
-        if key and not structured.get(key):
-            structured[key] = ent.text.strip()
+    # Fecha por label o cualquier fecha en el texto
+    f = _find_label_value(text, LABELS["fecha"])
+    structured["fecha"] = f or _find_date_anywhere(text)
 
-    # --- 2) Fallback regex para los campos que falten ---
+    # Monto + Moneda
+    monto, moneda = _find_amount(text)
+    structured["monto"] = monto
+    structured["moneda"] = moneda
+
+    # 2) Dimensiones (apoyo)
+    structured.update(extract_dimensions_from_text(text))
+
+    # 3) Relleno con NER solo si faltan campos
+    if not structured["company"] or structured["company"] == structured["cliente"]:
+        orgs = [ent.text for ent in doc.ents if ent.label_ == "ORG"]
+        orgs = sorted(orgs, key=lambda s: len(s), reverse=True)
+        for o in orgs:
+            norm_o = _norm(o)
+            if norm_o != structured["cliente"]:
+                structured["company"] = norm_o
+                break
+
     if not structured["cliente"]:
-        cliente = re.search(r"Cliente:\s*([^\—\n]+)", text)
-        if cliente:
-            structured["cliente"] = cliente.group(1).strip()
+        # si hay PER y parece nombre de persona, usarlo (último recurso)
+        pers = [ent.text for ent in doc.ents if ent.label_ == "PER"]
+        if pers:
+            structured["cliente"] = _norm(pers[0])
+            structured["person"] = structured["cliente"]
 
-    if not structured["company"]:
-        prov = re.search(r"(Proveedor|Empresa|Razón Social):\s*([^\—\n]+)", text, re.IGNORECASE)
-        if prov:
-            structured["company"] = prov.group(2).strip()
-
-    if not structured["fecha"]:
-        fecha_match = re.search(
-            r"Fecha:\s*(\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{4}|\d{1,2}\s+\w+\s+\d{4})",
-            text,
-            re.IGNORECASE
-        )
-        if fecha_match:
-            fecha_valor = fecha_match.group(1).strip()
-            # Normalizamos a DD/MM/YYYY si es numérica
-            num_fecha = re.match(r"(\d{1,2})[/\-\.](\d{1,2})[/\-\.](\d{4})", fecha_valor)
-            if num_fecha:
-                d, m, y = num_fecha.groups()
-                fecha_valor = f"{d.zfill(2)}/{m.zfill(2)}/{y}"
-            structured["fecha"] = fecha_valor
-
-    if not structured["monto"]:
-        monto = re.search(r"Monto:\s*([\d.,]+\s?(USD|ARS|€)?)", text)
-        if monto:
-            structured["monto"] = monto.group(1).strip()
-
-    if not structured["descripcion"]:
-        descripcion_match = re.search(r"Descripción:\s*(.+)$", text)
-        if descripcion_match:
-            desc = descripcion_match.group(1).strip()
-            desc = re.sub(
-                r"[\—\-]?\s*(Largo|Ancho)\s*[:\-]?\s*[\d.,]+\s?(mm|cm|m)",
-                "",
-                desc,
-                flags=re.IGNORECASE
-            )
-            desc = re.sub(r"\s{2,}", " ", desc).strip(" —-")
-            structured["descripcion"] = desc
-
-    # --- Número de factura u orden (puede ser la primera secuencia numérica significativa) ---
-    structured["factura"] = next((t.text for t in doc if t.like_num), None)
-
-    # --- Entidades detectadas ---
+    # 4) Armar listado de entidades para inspección
     ents = [{"texto": ent.text, "etiqueta": ent.label_} for ent in doc.ents]
 
     return {
@@ -122,8 +160,6 @@ def process_text(text: str, model_name: str):
         "entities": ents
     }
 
-
 def interpret_instructions(text: str, model_name: str = "es_core_news_md"):
-    """Interpreta instrucciones de usuario → plan de transformación."""
     nlp = build_nlp(model_name)
     return interpret_with_spacy(text, nlp)

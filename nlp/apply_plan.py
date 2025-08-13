@@ -1,8 +1,8 @@
-# nlp/apply_plan.py
 from typing import List, Dict, Any
 from datetime import datetime
 import unicodedata
 import re
+from difflib import SequenceMatcher
 
 def normalize_key(key: str) -> str:
     """Convierte claves a minúsculas y sin tildes para comparación insensible."""
@@ -16,16 +16,12 @@ def parse_number(value: str) -> float:
     if value is None:
         return None
     v = str(value).strip()
-    # Quitar separadores de miles
     if ',' in v and '.' in v:
         if v.find(',') > v.find('.'):
-            # 1.234,56 -> 1234.56
             v = v.replace('.', '').replace(',', '.')
         else:
-            # 1,234.56 -> 1234.56
             v = v.replace(',', '')
-    elif ',' in v and not '.' in v:
-        # 1234,56 -> 1234.56
+    elif ',' in v and '.' not in v:
         v = v.replace(',', '.')
     try:
         return float(v)
@@ -101,19 +97,19 @@ def execute_plan(data: Any, plan: List[Dict]) -> List[Dict]:
 
         for step in plan:
             op = step["op"]
+
             if op == "rename_columns":
                 mapping = step.get("map", {})
                 _rename_columns_in_dict(transformed, mapping, renamed_map)
                 if "structured" in transformed and isinstance(transformed["structured"], dict):
                     _rename_columns_in_dict(transformed["structured"], mapping, renamed_map)
+
             elif op == "format_date":
                 col = step.get("column")
-                # Buscar la fecha tanto en el nivel raíz como en structured
                 targets = []
                 if col in transformed:
                     targets.append(("root", col))
-                if "structured" in transformed and isinstance(transformed["structured"], dict) and col in transformed[
-                    "structured"]:
+                if "structured" in transformed and isinstance(transformed["structured"], dict) and col in transformed["structured"]:
                     targets.append(("structured", col))
 
                 for scope, colname in targets:
@@ -153,13 +149,33 @@ def execute_plan(data: Any, plan: List[Dict]) -> List[Dict]:
             elif op == "translate_values":
                 cols = step.get("columns", [])
                 lang = step.get("target_lang", "EN")
+
+                # Inferir idioma automáticamente
+                if lang.lower() == "infer":
+                    instr = step.get("instruction_text", "")
+                    # Buscar patrones tipo "al <idioma>" o "a <idioma>"
+                    match = re.search(r'\b(?:al|a|to)\s+(\w+)', instr, re.IGNORECASE)
+                    if match:
+                        lang_detected = match.group(1).lower()
+                        try:
+                            import langcodes
+                            lang = langcodes.find(lang_detected).language
+                        except Exception:
+                            # fallback simple: tomar primeras 2 letras en mayúscula
+                            lang = lang_detected[:2].upper()
+                    else:
+                        lang = "EN"
+
                 for c in cols:
                     c_norm = renamed_map.get(normalize_key(c), c)
+                    # Root level
                     if c_norm in transformed and transformed[c_norm]:
                         transformed[c_norm] = f"[{lang}]{transformed[c_norm]}"
+                    # Structured level
                     if "structured" in transformed and isinstance(transformed["structured"], dict):
                         if c_norm in transformed["structured"] and transformed["structured"][c_norm]:
                             transformed["structured"][c_norm] = f"[{lang}]{transformed['structured'][c_norm]}"
+
 
             elif op == "convert_units":
                 cols = step.get("columns", [])
@@ -172,54 +188,71 @@ def execute_plan(data: Any, plan: List[Dict]) -> List[Dict]:
                         if c_norm in transformed["structured"] and transformed["structured"][c_norm]:
                             transformed["structured"][c_norm] = f"{transformed['structured'][c_norm]} ({target_unit})"
 
+
             elif op == "filter_equals":
                 col = step.get("column")
                 val = step.get("value")
                 if col and val is not None:
-                    ncol = normalize_key(col)
-                    nval = normalize_key(str(val).strip())
-                    found_val = None
-
-                    for k, v in transformed.items():
-                        if normalize_key(k) == ncol:
-                            found_val = v
+                    def is_match(v1, v2, threshold=0.8):
+                        return SequenceMatcher(None, normalize_key(str(v1)),
+                                               normalize_key(str(v2))).ratio() >= threshold
+                    # Generar lista de posibles columnas si la indicada no existe
+                    candidate_cols = [col]
+                    equivalences = {
+                        "cliente": ["company", "provider", "proveedor"],
+                        "monto": ["importe", "total", "amount"],
+                        "descripcion": ["description", "detalle", "detalle_producto"]
+                    }
+                    norm_col = normalize_key(col)
+                    if norm_col in equivalences:
+                        candidate_cols += equivalences[norm_col]
+                    found = False
+                    # Revisar root y structured
+                    for c in candidate_cols:
+                        # Root
+                        if c in transformed and transformed[c] is not None:
+                            if is_match(transformed[c], val):
+                                found = True
+                                break
+                        # Structured
+                        if not found and "structured" in transformed and isinstance(transformed["structured"], dict):
+                            for k, v in transformed["structured"].items():
+                                if normalize_key(k) == normalize_key(c) and v is not None:
+                                    if is_match(v, val):
+                                        found = True
+                                        break
+                        if found:
                             break
-
-                    if found_val is None and isinstance(transformed.get("structured"), dict):
-                        for k, v in transformed["structured"].items():
-                            if normalize_key(k) == ncol:
-                                found_val = v
-                                break
-
-                    if found_val is None:
-                        all_keys = list(transformed.keys())
-                        if isinstance(transformed.get("structured"), dict):
-                            all_keys += list(transformed["structured"].keys())
-                        for k in all_keys:
-                            if normalize_key(k) == ncol:
-                                found_val = (
-                                    transformed.get(k) or
-                                    transformed.get("structured", {}).get(k)
-                                )
-                                break
-
-                    if isinstance(found_val, (list, tuple)) and found_val:
-                        found_val = found_val[0]
-
-                    if found_val is None or normalize_key(str(found_val)) != nval:
-                        transformed = None
+                    if not found:
+                        transformed = None  # registro filtrado
                         break
-
             elif op == "currency_to":
                 cols = step.get("columns", [])
                 target_currency = step.get("target", "USD")
+                rate = step.get("rate", 1.0)  # por ahora se puede usar 1.0 o 'ask_user|table'
+
+                # ejemplo de tasa fija, luego se puede reemplazar por fetch real
+                exchange_rates = {"ARS": 0.005, "USD": 1.0, "EUR": 1.1}  # ARS->USD ~0.005
                 for c in cols:
                     c_norm = renamed_map.get(normalize_key(c), c)
+                    # Root
                     if c_norm in transformed and transformed[c_norm]:
-                        transformed[c_norm] = f"{transformed[c_norm]} {target_currency}"
+                        raw_val = parse_number(transformed[c_norm])
+                        if raw_val is not None:
+                            curr = transformed.get("moneda", "ARS")
+                            factor = exchange_rates.get(curr.upper(), 1.0)
+                            transformed[c_norm] = f"{raw_val * factor:.2f}"
+                            transformed["moneda"] = target_currency
+                    # Structured
                     if "structured" in transformed and isinstance(transformed["structured"], dict):
                         if c_norm in transformed["structured"] and transformed["structured"][c_norm]:
-                            transformed["structured"][c_norm] = f"{transformed['structured'][c_norm]} {target_currency}"
+                            raw_val = parse_number(transformed["structured"][c_norm])
+                            if raw_val is not None:
+                                curr = transformed["structured"].get("moneda", transformed.get("moneda", "ARS"))
+                                factor = exchange_rates.get(curr.upper(), 1.0)
+                                transformed["structured"][c_norm] = f"{raw_val * factor:.2f}"
+                                transformed["structured"]["moneda"] = target_currency
+
 
             elif op == "export":
                 pass
@@ -228,4 +261,3 @@ def execute_plan(data: Any, plan: List[Dict]) -> List[Dict]:
             transformed_data.append(transformed)
 
     return transformed_data
-

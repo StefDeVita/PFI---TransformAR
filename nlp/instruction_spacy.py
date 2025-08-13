@@ -1,16 +1,25 @@
 # nlp/instruction_spacy.py
+import difflib
 from typing import List, Dict, Tuple
 import re
 import spacy
+import langcodes
+import unicodedata
 from spacy.matcher import Matcher, PhraseMatcher
 from spacy.pipeline import EntityRuler
 
 LANG_MAP = {
-    "inglés":"EN","ingles":"EN","en":"EN",
-    "español":"ES","es":"ES",
-    "alemán":"DE","aleman":"DE","de":"DE",
-    "italiano":"IT","it":"IT",
-    "portugués":"PT","portugues":"PT","pt":"PT"
+    "ingles": "EN",
+    "inglés": "EN",
+    "espanol": "ES",
+    "español": "ES",
+    "aleman": "DE",
+    "alemán": "DE",
+    "italiano": "IT",
+    "portugues": "PT",
+    "portugués": "PT",
+    "frances": "FR",
+    "francés": "FR"
 }
 UNIT_MAP = {
     "mm":"mm","milimetro":"mm","milímetros":"mm",
@@ -67,6 +76,25 @@ def _find_destination_unit(text: str) -> str | None:
             }.get(u, None)
     return None
 
+def _normalize_lang(text: str) -> str:
+    """Quita tildes y normaliza el texto para pasar a langcodes."""
+    return ''.join(c for c in unicodedata.normalize('NFD', text)
+                   if unicodedata.category(c) != 'Mn').lower()
+def _fuzzy_match_lang(text: str, lang_map: dict, cutoff: float = 0.7) -> str | None:
+    """
+    Devuelve el código ISO de un idioma haciendo fuzzy match con lang_map.
+    cutoff: similitud mínima entre 0 y 1
+    """
+    normalized = _normalize_lang(text)
+    # lista de claves normalizadas
+    keys = list(lang_map.keys())
+    keys_norm = [_normalize_lang(k) for k in keys]
+    match = difflib.get_close_matches(normalized, keys_norm, n=1, cutoff=cutoff)
+    if match:
+        # devolver el código ISO correspondiente
+        idx = keys_norm.index(match[0])
+        return lang_map[keys[idx]]
+    return None
 
 def build_nlp(model: str = "es_core_news_md"):
     """Crea el nlp con EntityRuler para LANG, UNIT, DATEFMT, EXPORTFMT."""
@@ -98,7 +126,7 @@ def _build_matchers(nlp):
     # --- rename_columns ---
     matcher.add("RENAME", [
         [{"LEMMA": {"IN": ["renombrar","llamar","etiquetar"]}}],
-        [{"LOWER": {"IN": ["renombrá","renombra"]}}],
+        [{"LOWER": {"IN": ["renombrá","renombra","cambia","cambiá"]}}],
         [{"TEXT": {"REGEX": "(?i)renombr.*"}}],
     ])
 
@@ -138,28 +166,48 @@ def _build_matchers(nlp):
     pmatcher.add("EXPORT", [nlp.make_doc("exportar a csv"), nlp.make_doc("exportar a excel")])
     return matcher, pmatcher
 
-def _extract_columns(text: str) -> List[str]:
-    import re
-    # valor de filtro para excluirlo de columnas citadas
-    m = re.search(r'donde\s+([\wÁÉÍÓÚÜÑáéíóúüñ]+)\s*=\s*[\"“”\'‘’]([^\"“”\'‘’]+)[\"“”\'‘’]', text, flags=re.IGNORECASE)
-    filter_value = m.group(2).strip() if m else None
+MEASURE_KEYS = ["largo", "ancho", "alto", "longitud", "anchura", "altura", "peso"]
+def _extract_columns(raw_text: str) -> Dict[str, str]:
+    """
+    Extrae columnas de tipo medida o monto desde el texto, evita duplicados
+    y normaliza keys.
+    """
+    structured = {}
 
-    quoted = re.findall(r'[\"“”\'‘’]([^\"“”\'‘’]+)[\"“”\'‘’]', text)
-    if filter_value:
-        quoted = [q for q in quoted if q.strip().lower() != filter_value.lower()]
+    # 1) Extraer valores tipo 'Nombre: valor'
+    pattern = re.compile(r'([\wáéíóúüñ]+)\s*[:]\s*([\d.,]+\s*\w*)', flags=re.IGNORECASE)
+    for match in pattern.finditer(raw_text):
+        key, value = match.groups()
+        key_lower = key.strip().lower()
+        value = value.strip()
 
-    csv_like = re.findall(r'(?:columna|columnas?)\s+([\wÁÉÍÓÚÜÑáéíóúüñ ,/.-]+)', text, flags=re.IGNORECASE)
-    cols = [c.strip() for c in quoted]
-    if csv_like:
-        cols += [c.strip() for c in re.split(r'[ ,/]+', csv_like[0]) if c.strip()]
+        # Normalizar medidas
+        for mk in MEASURE_KEYS:
+            if mk in key_lower:
+                structured[mk] = value
+                break
+        # Detectar montos
+        if "monto" in key_lower or "total" in key_lower or "importe" in key_lower:
+            # Separar valor y moneda
+            m = re.match(r'([\d.,]+)\s*([A-Z]{2,3}|ARS|USD|EUR)?', value)
+            if m:
+                structured["monto"] = m.group(1)
+                if m.group(2):
+                    structured["moneda"] = m.group(2)
+            else:
+                structured["monto"] = value
 
-    seen, out = set(), []
-    for c in cols:
-        k = c.lower()
-        if k not in seen:
-            out.append(c); seen.add(k)
-    return out
+        # Otras columnas, si no existen aún, añadir
+        if key_lower not in structured:
+            structured[key_lower] = value
 
+    # 2) Evitar duplicados: company / cliente
+    org_matches = re.findall(r'Compañía\s+[\w\s\.]+', raw_text)
+    if org_matches:
+        structured["company"] = org_matches[0]
+        structured["cliente"] = org_matches[0]  # si querés separar luego, se puede
+
+    return structured
 
 def interpret_with_spacy(text: str, nlp=None):
     nlp = nlp or build_nlp()
@@ -177,10 +225,20 @@ def interpret_with_spacy(text: str, nlp=None):
         if ent.label_ in entities:
             entities[ent.label_].append(ent.text.lower())
 
-    # normalizaciones de slots
+    # normalizaciones de slots - idioma inferido dinámicamente
+
     target_lang = None
     if entities["LANG"]:
-        target_lang = LANG_MAP.get(entities["LANG"][0], None)
+        lang_text = entities["LANG"][0].strip().lower()
+        # primero fuzzy match con nuestro diccionario
+        target_lang = _fuzzy_match_lang(lang_text, LANG_MAP)
+        if not target_lang:
+            # fallback: intentar con langcodes
+            try:
+                target_lang = langcodes.find(lang_text).language.upper()
+
+            except:
+                target_lang = None
 
     # --- Unidad destino robusta ---
     # 1) Priorizar construcciones destino: "a mm", "en cm", "a pulgadas"
@@ -255,10 +313,19 @@ def interpret_with_spacy(text: str, nlp=None):
 
     # --- Inferir intención de traducción sin verbo ---
     infer_translate = False
-    if target_lang and "TRANSLATE" not in intents:
-        # si hay idioma y se mencionan descripciones/ítems/detalle, interpretar como traducción de valores
-        if any(w in text.lower() for w in DESC_SYNONYMS):
-            infer_translate = True
+
+    # Si hay palabras de descripción y no se mencionó explícitamente TRANSLATE
+    if any(w in text.lower() for w in DESC_SYNONYMS) and "TRANSLATE" not in intents:
+        # intentamos inferir idioma dinámicamente
+        if not target_lang:
+            try:
+                from langdetect import detect, DetectorFactory
+                DetectorFactory.seed = 0
+                detected_lang = detect(text)
+                target_lang = langcodes.Language.get(detected_lang).language.upper()
+            except:
+                target_lang = None
+        infer_translate = True
 
     # --- TRANSLATE VALUES ---
     if "TRANSLATE" in intents or infer_translate:

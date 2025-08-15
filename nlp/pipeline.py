@@ -1,5 +1,8 @@
 # nlp/pipeline.py
 import re
+from datetime import datetime
+from typing import Optional, Tuple
+
 import spacy
 from nlp.patterns import add_custom_patterns
 from nlp.instruction_spacy import build_nlp, interpret_with_spacy
@@ -42,7 +45,25 @@ def _find_label_value(text: str, variants) -> str | None:
 def _find_date_anywhere(text: str) -> str | None:
     m = re.search(DATE_REGEX, text)
     return _norm(m.group(1)) if m else None
+def _validate_date(value: str) -> str | None:
+    """Intenta validar fechas comunes."""
+    for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d"):
+        try:
+            dt = datetime.strptime(value, fmt)
+            return dt.strftime("%Y-%m-%d")
+        except Exception:
+            continue
+    return None
 
+
+def _validate_amount(value: str) -> Optional[Tuple[str, str]]:
+    """Busca números y moneda."""
+    import re
+    m = re.search(r"([\d.,]+)\s*([A-Z]{2,4}|USD|EUR|ARS)", value)
+    if m:
+        return m.group(1), m.group(2)
+    return None
+    return None, None
 def _find_amount(text):
     """
     Devuelve (monto_str, moneda_str).
@@ -100,65 +121,53 @@ def extract_dimensions_from_text(text):
 # Pipeline principal
 # -----------------------
 def process_text(text: str, model_name: str):
-    """
-    1) Extrae campos por cabeceras (robusto y general).
-    2) Completa con NER solo si faltan datos.
-    3) Extrae dimensiones como apoyo.
-    """
-    nlp = get_nlp(model_name)
+    """Procesa texto con spaCy + reglas adicionales para structured."""
+    nlp = spacy.load(model_name)
+    add_custom_patterns(nlp)
     doc = nlp(text)
 
+    entities = [{"texto": ent.text, "etiqueta": ent.label_} for ent in doc.ents]
+
     structured = {
-        "company": None,      # Proveedor/Empresa/Razón social/Emisor
-        "cliente": None,      # Cliente/Destinatario
-        "person": None,       # Persona (si aparece una PER y 'cliente' no está)
+        "company": None,
+        "cliente": None,
+        "person": None,
         "fecha": None,
         "monto": None,
         "moneda": None,
-        "descripcion": None
+        "descripcion": None,
     }
 
-    # 1) Cabeceras primero (alta precisión)
-    structured["cliente"] = _find_label_value(text, LABELS["cliente"])
-    structured["company"] = _find_label_value(text, LABELS["company"])
-    structured["descripcion"] = _find_label_value(text, LABELS["descripcion"])
+    for ent in doc.ents:
+        txt = ent.text.strip()
 
-    # Fecha por label o cualquier fecha en el texto
-    f = _find_label_value(text, LABELS["fecha"])
-    structured["fecha"] = f or _find_date_anywhere(text)
+        if ent.label_ in ["ORG", "LOC"] and not structured["company"]:
+            structured["company"] = txt
 
-    # Monto + Moneda
-    monto, moneda = _find_amount(text)
-    structured["monto"] = monto
-    structured["moneda"] = moneda
+        elif ent.label_ in ["PER", "CLIENTE"] and not structured["cliente"]:
+            # Evitar que quede "Cliente" solo
+            if txt.lower() != "cliente":
+                structured["cliente"] = txt
+                structured["person"] = txt
 
-    # 2) Dimensiones (apoyo)
-    structured.update(extract_dimensions_from_text(text))
+        elif ent.label_ == "FECHA" and not structured["fecha"]:
+            val = _validate_date(txt)
+            if val:
+                structured["fecha"] = val
 
-    # 3) Relleno con NER solo si faltan campos
-    if not structured["company"] or structured["company"] == structured["cliente"]:
-        orgs = [ent.text for ent in doc.ents if ent.label_ == "ORG"]
-        orgs = sorted(orgs, key=lambda s: len(s), reverse=True)
-        for o in orgs:
-            norm_o = _norm(o)
-            if norm_o != structured["cliente"]:
-                structured["company"] = norm_o
-                break
 
-    if not structured["cliente"]:
-        # si hay PER y parece nombre de persona, usarlo (último recurso)
-        pers = [ent.text for ent in doc.ents if ent.label_ == "PER"]
-        if pers:
-            structured["cliente"] = _norm(pers[0])
-            structured["person"] = structured["cliente"]
+        elif ent.label_ == "MONTO" and not structured["monto"]:
+            result = _validate_amount(txt)
+            if result is not None:
+                num, cur = result
+                structured["monto"] = num
+                structured["moneda"] = cur
 
-    # 4) Armar listado de entidades para inspección
-    ents = [{"texto": ent.text, "etiqueta": ent.label_} for ent in doc.ents]
+        elif ent.label_ == "PRODUCTO" and not structured["descripcion"]:
+            if txt.lower() not in ["descripcion", "descripción"]:
+                structured["descripcion"] = txt
 
-    return {
-        "structured": structured,
-        "entities": ents
-    }
+    return {"structured": structured, "entities": entities}
 
 def interpret_instructions(text: str, model_name: str = "es_core_news_md"):
     nlp = build_nlp(model_name)

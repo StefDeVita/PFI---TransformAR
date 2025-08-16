@@ -7,6 +7,9 @@ import spacy
 from nlp.patterns import add_custom_patterns
 from nlp.instruction_spacy import build_nlp, interpret_with_spacy
 
+from nlp.qwen_labeler import tag_text_with_qwen
+
+
 _SPACY_MODELS = {}
 
 def get_nlp(model_name: str):
@@ -172,3 +175,10 @@ def process_text(text: str, model_name: str):
 def interpret_instructions(text: str, model_name: str = "es_core_news_md"):
     nlp = build_nlp(model_name)
     return interpret_with_spacy(text, nlp)
+
+def process_pdf_text_to_tags(extracted_text: str) -> dict:
+    """
+    Toma el texto (ya extraído por Docling) y devuelve etiquetas estructuradas
+    usando Qwen vía Ollama.
+    """
+    return tag_text_with_qwen(extracted_text)

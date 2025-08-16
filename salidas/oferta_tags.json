@@ -1,0 +1,55 @@
+{
+  "doc_type": "Offer",
+  "language": "Spanish",
+  "seller": {
+    "name": "Bautista Fantauzzo",
+    "vat": "",
+    "address": "IC Import Consultants GmbH Hallbergmooser Str. 5 - Hinterhof Tor 10 85445 Oberding/Schwaig, Germany"
+  },
+  "buyer": {
+    "name": "Agustin Rodriguez Lares",
+    "vat": "",
+    "address": "Petroquimica Cuyo S.A.I.C."
+  },
+  "dates": {
+    "issue_date": "27.06.2025",
+    "due_date": "26.07.2025"
+  },
+  "ids": {
+    "invoice_number": "",
+    "order_number": "",
+    "quote_number": "25.01312"
+  },
+  "totals": {
+    "currency": "EUR",
+    "subtotal": 3644.52,
+    "tax": 0,
+    "total": 3644.52
+  },
+  "payment_terms": "transferencia bancaria a los 30 dias fecha factura",
+  "delivery_terms": "Entrega: 3 Semanas",
+  "items": [
+    {
+      "line_number": 1,
+      "part_number": "M0000091",
+      "description": "ELECTROBOMBASUMERGIBLE ZENIT DGO 200/2/80 A1CT5",
+      "qty": 2,
+      "unit": "un",
+      "unit_price": 1058.33,
+      "currency": "EUR",
+      "line_total": 2116.66
+    },
+    {
+      "line_number": 2,
+      "part_number": "",
+      "description": "Electrobomba Sumergible ZENIT DGO 100/2/G50 V B0CT 50",
+      "qty": 2,
+      "unit": "un",
+      "unit_price": 763.93,
+      "currency": "EUR",
+      "line_total": 1527.86
+    }
+  ],
+  "notes": "Los precios están expresados en EURO condición EXW Schwaig - Ic Warehouse (Ex Works, Incoterms 2020). La presente oferta es válida hasta el 26.07.2025.",
+  "_confidence": 90
+}

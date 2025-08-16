@@ -1,59 +1,46 @@
-# main.py
-import os
-from config.settings import SPACY_MODEL
-from input.docling_reader import extract_text_with_layout
-from nlp.pipeline import process_text, interpret_instructions
-from nlp.apply_plan import execute_plan
+import argparse, json, sys, pathlib
+from input.docling_reader import extract_text_with_layout  # asumiendo esta función
+from nlp.pipeline import process_pdf_text_to_tags
 
 def main():
-    # --- Entrada del usuario ---
-    file_path = input("📄 Ruta del PDF a procesar: ").strip()
-    if not file_path:
-        print("⚠️ No se ingresó ninguna ruta. Saliendo...")
-        return
+    parser = argparse.ArgumentParser(description="PFI TransformAR")
+    parser.add_argument("--pdf", required=True, help="Ruta al PDF a procesar")
+    parser.add_argument("--label", action="store_true",
+                        help="Etiquetar con Ollama Qwen2.5-VL (texto, sin imágenes)")
+    parser.add_argument("--out", default="", help="Archivo de salida JSON con tags")
+    args = parser.parse_args()
 
-    if not os.path.exists(file_path):
-        print(f"⚠️ El archivo no existe: {file_path}")
-        return
+    pdf_path = pathlib.Path(args.pdf)
+    print(f"📄 Procesando archivo: {pdf_path}")
 
-    # --- Extracción con Docling ---
-    print(f"\n📄 Procesando archivo: {file_path}")
+    # 1) Extraer texto con Docling (como ya haces)
     try:
-        raw_text = extract_text_with_layout(file_path)
+        text = extract_text_with_layout(str(pdf_path))
     except Exception as e:
-        print(f"⚠️ Docling falló: {e}")
+        print(f"⚠️ No se pudo extraer texto del PDF: {e}")
+        sys.exit(1)
+
+    if not args.label:
+        # comportamiento anterior
+        print("✅ Texto extraído (etiquetado deshabilitado).")
+        print(text[:500] + ("..." if len(text) > 500 else ""))
         return
 
-    if not raw_text.strip():
-        print("⚠️ No se pudo extraer texto del PDF.")
-        return
+    # 2) Etiquetar con Qwen (vía Ollama)
+    try:
+        tags = process_pdf_text_to_tags(text)
+    except Exception as e:
+        print(f"⚠️ Falló el etiquetado con Qwen/Ollama: {e}")
+        sys.exit(2)
 
-    # --- Vista previa del texto ---
-    preview = raw_text[:800].replace("\n", " ")
-    print(f"\n📝 Preview del texto extraído (800 chars):\n{preview}")
-
-    # --- Procesamiento NLP ---
-    current_data = process_text(raw_text, SPACY_MODEL)
-    print("\n🔍 Datos extraídos (NLP):")
-    print(current_data)
-
-    # --- Ingreso de instrucciones ---
-    while True:
-        txt = input("\n✏️ Ingrese una instrucción (o 'salir' para terminar): ").strip()
-        if txt.lower() == "salir":
-            break
-
-        plan, report = interpret_instructions(txt, SPACY_MODEL)
-        print("\n📋 Plan detectado:", plan)
-        print("🗒 Reporte:", report)
-
-        current_data = execute_plan(current_data, plan)
-        print("\n✅ Resultado después de aplicar la instrucción:")
-        print(current_data)
-
-    print("\n🎯 Resultado final después de aplicar todas las instrucciones:")
-    print(current_data)
-
+    # 3) Persistir salida (opcional)
+    if args.out:
+        out_path = pathlib.Path(args.out)
+        out_path.write_text(json.dumps(tags, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"🧾 Tags guardados en: {out_path}")
+    else:
+        print("🧾 Tags:")
+        print(json.dumps(tags, ensure_ascii=False, indent=2))
 
 if __name__ == "__main__":
     main()

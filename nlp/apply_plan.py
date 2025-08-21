@@ -235,6 +235,7 @@ def execute_plan(tags_or_list: Any, plan: List[Dict[str, Any]]) -> List[Dict[str
     Acepta dict (un documento) o lista de dicts (varios).
     Devuelve siempre una lista (de uno o más JSON transformados).
     """
+    print(plan)
     docs: List[Dict[str, Any]]
     if isinstance(tags_or_list, dict):
         docs = [tags_or_list]

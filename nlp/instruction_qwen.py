@@ -46,8 +46,6 @@ def interpret_with_qwen(text: str) -> Tuple[List[Dict], Dict]:
         raw_clean = m.group(1).strip()
 
     parsed = json.loads(raw_clean)
-    print(parsed)
     plan = parsed.get("plan", [])
-    print(plan)
     return plan, parsed.get("report", {})
 

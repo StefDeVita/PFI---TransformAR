@@ -14,16 +14,9 @@ from nlp.instruction_qwen import interpret_with_qwen
 
 
 def process_file(pdf_path: pathlib.Path, extract_instr: str, transform_instr: str) -> List[Dict[str, Any]]:
-    # 1) PDF -> Texto plano/markdown
     md = extract_text_with_layout(str(pdf_path))
-
-    # 2) Extraer datos relevantes con Qwen
     extracted = extract_with_qwen(md, extract_instr)
-
-    # 3) Interpretar instrucción de transformación -> PLAN
     plan, _ = interpret_with_qwen(transform_instr)
-
-    # 4) Aplicar plan sobre lo extraído
     return execute_plan(extracted, plan)
 
 

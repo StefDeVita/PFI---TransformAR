@@ -76,7 +76,6 @@ def _format_date(val: Any, input_fmt: str, output_fmt: str) -> Optional[str]:
 def execute_plan(doc_or_list: Any, plan: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Aplica el plan directamente sobre el JSON plano extraído por Qwen.
-    Soporta operaciones genéricas sobre claves sin depender de un schema fijo.
     """
     docs: List[Dict[str, Any]]
     if isinstance(doc_or_list, dict):

@@ -11,10 +11,10 @@ from config.settings import (
 
 def extract_text_with_layout(file_path: str) -> str:
     """
-    Extrae texto de PDF usando EXCLUSIVAMENTE Docling con OCR de Tesseract.
+    Extrae texto de PDF usando Docling con OCR de Tesseract.
     - Activa OCR y detección automática de idioma (lang=["auto"]) o lista fija.
     - Usa force_full_page_ocr=True para PDFs escaneados/mixtos.
-    - Exporta a Markdown (estructura simple por páginas/bloques).
+    - Exporta a Markdown.
     """
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"No se encontró el archivo: {file_path}")
@@ -50,7 +50,7 @@ def extract_text_with_layout(file_path: str) -> str:
         }
     )
 
-    # Convertir y exportar a Markdown (suele ser lo más práctico para NLP posterior)
+    # Convertir y exportar a Markdown
     result = converter.convert(Path(file_path))
     # Según la API actual, el documento está en .document
     doc = getattr(result, "document", None) or result

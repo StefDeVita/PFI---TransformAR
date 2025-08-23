@@ -25,6 +25,17 @@ Reglas:
 - No expliques nada.
 - No inventes columnas que no existan.
 - Devuelve SOLO JSON.
+- **No** inventes campos ni valores.
+- Si un campo no existe, **omitilo** (no lo inventes).
+- Separa la unidad/moneda del valor en si en los items y totales (es decir un campo sera el precio y otro campo la unidad/moneda)
+- Si un valor no está en el documento, NO inventes nada.
+- La fecha pasala por defecto a dd/mm/yyyy.
+- Sé robusto: los documentos pueden estar incompletos, desordenados o en lenguaje coloquial.
+- Cuando extraigas valores numéricos de documentos:
+    **Elimina los separadores de miles**
+    Usa siempre el punto (.) como separador decimal.
+    Devuelve los números en formato float.
+    No cambies el valor, solo el formato.
 """
 
 USER_PROMPT_TEMPLATE = """INSTRUCCIÓN:

@@ -17,13 +17,14 @@ class OllamaClient:
         user: str,
         json_mode: bool = True,
         options: Optional[Dict[str, Any]] = None,
+        model: Optional[str] = None,
     ) -> str:
         """
         Llama a /api/chat de Ollama y devuelve el contenido crudo de la respuesta.
         Si json_mode=True, intenta forzar salida JSON (algunos modelos lo soportan).
         """
         payload: Dict[str, Any] = {
-            "model": self.model,
+            "model": model or self.model,  # <-- usar override si viene
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},

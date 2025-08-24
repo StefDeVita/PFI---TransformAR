@@ -8,26 +8,17 @@ from nlp.ollama_client import OllamaClient
 SYSTEM_PROMPT = """
 Sos un extractor de información de documentos empresariales.
 
-Podés recibir como entrada:
-- Documentos corporativos (facturas, remitos, órdenes de compra, presupuestos, ofertas, contratos).
-- Mensajes informales (WhatsApp, emails, notas de pedido).
-
 Tu tarea:
 - Extraer **exactamente** los campos que pide el usuario, con **nombres descriptivos y formatos tal como los solicita**.
 - Devolver SIEMPRE un JSON plano, sin explicaciones ni texto adicional.
 
 Reglas:
+- Agregar espacios entre palabras que se encuentren o quitalos si hay mas de uno. La informacion debe quedar lo mas limpia posible
 - **No** inventes campos ni valores.
 - Si un campo no existe, **omitilo** (no lo inventes).
 - Separa la moneda del valor en si en los items y totales (es decir un campo sera el precio y otro campo la moneda)
-- Si un valor no está en el documento, NO inventes nada.
-- La fecha pasala por defecto a dd/mm/yyyy.
-- Sé robusto: los documentos pueden estar incompletos, desordenados o en lenguaje coloquial.
-- Cuando extraigas valores numéricos de documentos:
-    **Elimina los separadores de miles**
-    Usa siempre el punto (.) como separador decimal.
-    Devuelve los números en formato float o string numérica entendible por cualquier máquina.
-    No cambies el valor, solo el formato.
+- Las fechas pasalas por defecto a dd/mm/yyyy.
+- Cuando extraigas valores numéricos nunca usar separador de miles, siempre poner dos decimales y usar coma como separador decimal
 """
 
 def _extract_json_from_any(raw: str) -> Dict[str, Any]:

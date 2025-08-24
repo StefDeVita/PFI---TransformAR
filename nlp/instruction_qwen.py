@@ -20,22 +20,19 @@ Operaciones posibles:
 - filtrar entre: {"op":"filter_between","column":"col","range":["a","b"]}
 - conversion SOLO de moneda(pesos,dolares,euros,etc): {"op":"currency_to","columns":["precio","total"],"target":"ARS","rate":"0.5"}
 - exportar a otro formato: {"op":"export","format":"csv|xlsx","path":"output/resultado.ext"}
+- normalizar texto (determinístico): {"op":"normalize_text","columns":["col1"],"options":{"strip_accents":true,"collapse_spaces":true,"trim":true,"uppercase":false,"lowercase":false}}
+- limpieza con LLM (espaciado/ortografía): {"op":"cleanup_text_llm","columns":["col1"],"instruction":"..."}
+
 
 Reglas:
+- Agregar espacios entre palabras o quitalos si hay mas de uno. La informacion debe quedar lo mas limpia posible
 - No expliques nada.
-- No inventes columnas que no existan.
 - Devuelve SOLO JSON.
 - **No** inventes campos ni valores.
 - Si un campo no existe, **omitilo** (no lo inventes).
 - Separa la unidad/moneda del valor en si en los items y totales (es decir un campo sera el precio y otro campo la unidad/moneda)
-- Si un valor no está en el documento, NO inventes nada.
-- La fecha pasala por defecto a dd/mm/yyyy.
-- Sé robusto: los documentos pueden estar incompletos, desordenados o en lenguaje coloquial.
-- Cuando extraigas valores numéricos de documentos:
-    **Elimina los separadores de miles**
-    Usa siempre el punto (.) como separador decimal.
-    Devuelve los números en formato float.
-    No cambies el valor, solo el formato.
+- Las fechas pasalas por defecto a dd/mm/yyyy.
+- Cuando extraigas valores numéricos nunca usar separador de miles, siempre poner dos decimales y usar coma como separador decimal
 """
 
 USER_PROMPT_TEMPLATE = """INSTRUCCIÓN:
@@ -60,3 +57,31 @@ def interpret_with_qwen(text: str) -> Tuple[List[Dict], Dict]:
     plan = parsed.get("plan", [])
     return plan, parsed.get("report", {})
 
+# --- Injected: translate intent detection ---
+def _infer_target_lang_from_text(text: str) -> str:
+    # very simple heuristic; you can expand with langcodes or regex
+    # patterns like: "a ingles/en inglés", "to english", "-> en"
+    t = text.lower()
+    if "alemán" in t or "aleman" in t or "german" in t or "deutsch" in t:
+        return "de"
+    if "italiano" in t or "italian" in t or "italiano" in t:
+        return "it"
+    if "portugués" in t or "portugues" in t or "portuguese" in t:
+        return "pt"
+    if "francés" in t or "frances" in t or "french" in t:
+        return "fr"
+    if "inglés" in t or "ingles" in t or "english" in t:
+        return "en"
+    if "español" in t or "espanol" in t or "spanish" in t:
+        return "es"
+    return "en"
+
+def build_translate_step(user_instruction: str, columns=None, text_key="text"):
+    return {
+        "op": "translate",
+        "args": {
+            "target_lang": _infer_target_lang_from_text(user_instruction),
+            **({"columns": columns} if columns else {}),
+            "text_key": text_key,
+        }
+    }

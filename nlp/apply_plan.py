@@ -52,31 +52,106 @@ def _find_keys(obj: Any, target: str):
     return matches
 
 # ========= Fechas =========
-
 def _format_date(val: Any, input_fmt: str, output_fmt: str) -> Optional[str]:
     s = _norm(val)
     if not s:
-        return None
+         return None
+    # 1) Si viene un formato explícito, se intenta primero
     if input_fmt and input_fmt != "infer":
         try:
             return datetime.strptime(s, input_fmt).strftime(output_fmt)
         except Exception:
-            return None
-    fmts = ("%Y-%m-%d","%d/%m/%Y","%d-%m-%Y","%Y/%m/%d",
-            "%d.%m.%Y","%d de %B de %Y","%d %B %Y","%d %b %Y")
+            pass  # seguimos intentando
+
+    # 2) Extraer la subcadena "fecha" si viene mezclada con hora/texto
+    #    Ej: "2025-08-24 14:33:19", "Entrega: 12/03/2024 – 08:00"
+    num_pat = re.compile(r"(\d{1,4}[./\-]\d{1,2}[./\-]\d{2,4})")
+    m = num_pat.search(s)
+    s_try = m.group(1) if m else s
+
+    # 3) Intentar con formatos numéricos más amplios (incluye año de 2 dígitos)
+    fmts = (
+        "%Y-%m-%d","%d/%m/%Y","%d-%m-%Y","%Y/%m/%d","%d.%m.%Y",
+        "%d/%m/%y","%d-%m-%y","%y-%m-%d","%m/%d/%Y","%m-%d-%Y"
+    )
     for f in fmts:
         try:
-            return datetime.strptime(s, f).strftime("%Y-%m-%d")
+            dt = datetime.strptime(s_try, f)
+            # Normalizar años de 2 dígitos (si aplicó). strptime ya lo resuelve (1969/2069 rule).
+            return dt.strftime("%Y-%m-%d")
         except Exception:
             continue
+
+    # 4) Meses en texto (ES/EN), p.ej. "12 de marzo de 2025", "Mar 12, 2025", "12 Mar 25"
+    months = {
+        # es
+        "enero":"01","ene":"01","febrero":"02","feb":"02","marzo":"03","mar":"03","abril":"04","abr":"04",
+        "mayo":"05","may":"05","junio":"06","jun":"06","julio":"07","jul":"07","agosto":"08","ago":"08",
+        "septiembre":"09","setiembre":"09","sep":"09","sept":"09","octubre":"10","oct":"10",
+        "noviembre":"11","nov":"11","diciembre":"12","dic":"12",
+        # en
+        "january":"01","jan":"01","february":"02","feb":"02","march":"03","mar":"03","april":"04","apr":"04",
+        "may":"05","june":"06","jun":"06","july":"07","jul":"07","august":"08","aug":"08",
+        "september":"09","sept":"09","sep":"09","october":"10","oct":"10",
+        "november":"11","nov":"11","december":"12","dec":"12",
+    }
+    def _y(y: str) -> int:
+        yi = int(y)
+        return yi + (2000 if yi < 70 else 1900) if len(y) == 2 else yi
+
+    st = s.lower()
+    # a) "12 de marzo de 2025" / "12 marzo 2025"
+    rx_es = re.compile(r"\b(?P<d>\d{1,2})\s*(?:de\s+)?(?P<m>[a-záéíóúüñ]{3,15})\s*(?:de\s+)?(?P<y>\d{2,4})\b")
+    m = rx_es.search(st)
+    if m and m.group("m") in months:
+        try:
+            d = int(m.group("d")); mnum = int(months[m.group("m")]); y = _y(m.group("y"))
+            return f"{y:04d}-{mnum:02d}-{d:02d}"
+        except Exception:
+            pass
+    # b) "March 12, 2025" / "Mar 12 25"
+    rx_en = re.compile(r"\b(?P<m>[a-záéíóúüñ]{3,15})\s+(?P<d>\d{1,2})(?:,\s*)?(?P<y>\d{2,4})\b")
+    m = rx_en.search(st)
+    if m and m.group("m") in months:
+        try:
+            d = int(m.group("d")); mnum = int(months[m.group("m")]); y = _y(m.group("y"))
+            return f"{y:04d}-{mnum:02d}-{d:02d}"
+        except Exception:
+            pass
+
+    # Si nada funcionó, no es fecha válida
     return None
 
 def _iso_dates_everywhere(obj: Any):
+    """
+    Normaliza *cualquier* string que parezca fecha a ISO (YYYY-MM-DD),
+    sin depender del nombre de la clave.
+    """
+    # Heurística liviana para evitar falsos positivos de códigos:
+    # - Debe contener al menos un separador típico de fecha o una palabra de mes.
+    month_words = ("ene","feb","mar","abr","may","jun","jul","ago","sep","sept","oct","nov","dic",
+                   "jan","feb","mar","apr","may","jun","jul","aug","sep","sept","oct","nov","dec",
+                   "enero","febrero","marzo","abril","mayo","junio","julio","agosto",
+                   "septiembre","setiembre","octubre","noviembre","diciembre",
+                   "january","february","march","april","may","june","july","august",
+                   "september","october","november","december")
+    def _looks_like_dateish(txt: str) -> bool:
+        t = (txt or "").strip().lower()
+        if not (6 <= len(t) <= 40):
+            return False
+        if any(sep in t for sep in ("/","-",".")):
+            # Evitar una sola ocurrencia tipo "M00GG160/69": requerimos dos separadores iguales para patrón numérico
+            if re.search(r"\d{1,4}([./\-])\d{1,2}\1\d{2,4}", t):
+                return True
+        if any(w in t for w in month_words):
+            return True
+        return False
+
     if isinstance(obj, dict):
         for k, v in obj.items():
             if isinstance(v, (dict, list)):
                 _iso_dates_everywhere(v)
-            elif isinstance(v, str) and "fecha" in _nkey(k):
+            elif isinstance(v, str) and _looks_like_dateish(v):
                 newv = _format_date(v, "infer", "%Y-%m-%d")
                 if newv:
                     obj[k] = newv

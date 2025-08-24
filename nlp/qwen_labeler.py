@@ -14,9 +14,10 @@ Tu tarea:
 
 Reglas:
 - Agregar espacios entre palabras que se encuentren o quitalos si hay mas de uno. La informacion debe quedar lo mas limpia posible
+- Asegurate que lo que estes escribiendo tenga sentido en su contexto
 - **No** inventes campos ni valores.
 - Si un campo no existe, **omitilo** (no lo inventes).
-- Separa la moneda del valor en si en los items y totales (es decir un campo sera el precio y otro campo la moneda)
+- Siempre separa las unidades del valor en otro campo
 - Las fechas pasalas por defecto a dd/mm/yyyy.
 - Cuando extraigas valores numéricos nunca usar separador de miles, siempre poner dos decimales y usar coma como separador decimal
 """

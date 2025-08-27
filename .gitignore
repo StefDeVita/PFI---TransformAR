@@ -41,3 +41,7 @@ input/*.png
 *.pt
 *.joblib
 *.pickle
+
+input/*.json
+token.json
+downloads/

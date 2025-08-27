@@ -10,7 +10,7 @@ from nlp.instruction_qwen import interpret_with_qwen
 # Aplicación de plan
 from nlp.apply_plan import execute_plan
 from input.gmail_reader import authenticate_gmail, list_messages, get_message_content
-
+from input.outlook_reader import authenticate_outlook, get_token, list_messages_outlook, get_message_body, get_attachments
 
 def process_file(pdf_path: pathlib.Path, extract_instr: str, transform_instr: str):
     """Pipeline para archivos PDF locales"""
@@ -29,6 +29,7 @@ def process_text(doc_text: str, extract_instr: str, transform_instr: str):
 
 def main():
     parser = argparse.ArgumentParser(description="PFI TransformAR — Extracción y Transformación con Qwen")
+    parser.add_argument("--outlook", action="store_true", help="Usar Outlook/Office365 en vez de PDFs/Gmail")
     parser.add_argument("--files", nargs="+", help="Ruta(s) de PDF(s) a procesar")
     parser.add_argument("--gmail", action="store_true", help="Usar Gmail como fuente de entrada")
     parser.add_argument("--extract", required=True, help="Instrucción sobre qué campos extraer")
@@ -41,8 +42,39 @@ def main():
 
     any_error = False
     results = []
+    if args.outlook:
+        app = authenticate_outlook()
+        token = get_token(app)
+        mails = list_messages_outlook(token, top=10)
 
-    if args.gmail:
+        print("📧 Seleccioná un correo:")
+        for i, m in enumerate(mails):
+            sender = m.get("sender", {}).get("emailAddress", {}).get("address")
+            subject = m.get("subject")
+            print(f"{i + 1}. {sender} — {subject}")
+
+        choice = int(input("Número: ")) - 1
+        msg_id = mails[choice]["id"]
+
+        if mails[choice].get("hasAttachments"):
+            mode = input("¿Usar [T]exto del correo o [A]djuntos? ").lower()
+            if mode == "a":
+                files = get_attachments(token, msg_id)
+                if not files:
+                    print("⚠️ No se encontraron adjuntos, usando cuerpo del correo")
+                    md = get_message_body(token, msg_id)
+                else:
+                    pdf_path = files[0]
+                    md = extract_text_with_layout(pdf_path)
+            else:
+                md = get_message_body(token, msg_id)
+        else:
+            md = get_message_body(token, msg_id)
+
+        extracted = extract_with_qwen(md, args.extract)
+        plan, _ = interpret_with_qwen(args.instr)
+        results.append(execute_plan(extracted, plan))
+    elif args.gmail:
 
         # 1) Autenticación con Gmail
         service = authenticate_gmail()
@@ -97,7 +129,7 @@ def main():
                 any_error = True
                 continue
     else:
-        print("❌ Debés indicar --files o --gmail")
+        print("❌ Debés indicar --files o --gmail o --outlook")
         sys.exit(2)
 
     # Guardar resultados

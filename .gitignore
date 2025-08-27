@@ -44,4 +44,7 @@ input/*.png
 
 input/*.json
 token.json
+outlook_token.json
 downloads/
+.env
+attachments/

@@ -13,13 +13,13 @@ Tu tarea:
 - Devolver SIEMPRE un JSON plano, sin explicaciones ni texto adicional.
 
 Reglas:
+- Siempre inclui la moneda como el **código ISO de 3 letras** correspondiente.
 - Agregar espacios entre palabras que se encuentren o quitalos si hay mas de uno. La informacion debe quedar lo mas limpia posible
 - Asegurate que lo que estes escribiendo tenga sentido en su contexto
-- **No** inventes campos ni valores.
+- **No** inventes valores.
 - Si un campo no existe, **omitilo** (no lo inventes).
 - Siempre separa las unidades del valor en otro campo
 - Las fechas pasalas por defecto a dd/mm/yyyy.
-- Cuando extraigas valores numéricos nunca usar separador de miles, siempre poner dos decimales y usar coma como separador decimal
 """
 
 def _extract_json_from_any(raw: str) -> Dict[str, Any]:

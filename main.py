@@ -12,9 +12,28 @@ from nlp.apply_plan import execute_plan
 from input.gmail_reader import authenticate_gmail, list_messages, get_message_content
 from input.outlook_reader import authenticate_outlook, get_token, list_messages_outlook, get_message_body, get_attachments
 
-def process_file(pdf_path: pathlib.Path, extract_instr: str, transform_instr: str):
+
+CACHE_FILE = pathlib.Path("cache/docling_last.md")
+
+
+def load_cached_text() -> str:
+    if CACHE_FILE.exists():
+        return CACHE_FILE.read_text(encoding="utf-8")
+    raise FileNotFoundError("⚠️ No existe cache previo (cache/docling_last.md).")
+
+
+def save_cache(md_text: str):
+    CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    CACHE_FILE.write_text(md_text, encoding="utf-8")
+
+
+def process_file(pdf_path: pathlib.Path, extract_instr: str, transform_instr: str, use_cache: bool = False):
     """Pipeline para archivos PDF locales"""
-    md = extract_text_with_layout(str(pdf_path))
+    if use_cache:
+        md = load_cached_text()
+    else:
+        md = extract_text_with_layout(str(pdf_path))
+        save_cache(md)
     extracted = extract_with_qwen(md, extract_instr)
     plan, _ = interpret_with_qwen(transform_instr)
     return execute_plan(extracted, plan)
@@ -32,6 +51,7 @@ def main():
     parser.add_argument("--outlook", action="store_true", help="Usar Outlook/Office365 en vez de PDFs/Gmail")
     parser.add_argument("--files", nargs="+", help="Ruta(s) de PDF(s) a procesar")
     parser.add_argument("--gmail", action="store_true", help="Usar Gmail como fuente de entrada")
+    parser.add_argument("--default", action="store_true", help="Usar texto cacheado previo en vez de analizar archivo nuevo")
     parser.add_argument("--extract", required=True, help="Instrucción sobre qué campos extraer")
     parser.add_argument("--instr", required=True, help="Instrucción de transformación sobre lo extraído")
     parser.add_argument("--outdir", default="output", help="Carpeta para guardar resultados JSON")
@@ -42,7 +62,20 @@ def main():
 
     any_error = False
     results = []
-    if args.outlook:
+
+    if args.default:
+        # 🔹 Ejecutar pipeline con cache
+        try:
+            md = load_cached_text()
+        except FileNotFoundError as e:
+            print(str(e))
+            sys.exit(1)
+        extracted = extract_with_qwen(md, args.extract)
+        print(extracted)
+        plan, _ = interpret_with_qwen(args.instr)
+        results.append(execute_plan(extracted, plan))
+
+    elif args.outlook:
         app = authenticate_outlook()
         token = get_token(app)
         mails = list_messages_outlook(token, top=10)
@@ -66,6 +99,7 @@ def main():
                 else:
                     pdf_path = files[0]
                     md = extract_text_with_layout(pdf_path)
+                    save_cache(md)
             else:
                 md = get_message_body(token, msg_id)
         else:
@@ -74,12 +108,9 @@ def main():
         extracted = extract_with_qwen(md, args.extract)
         plan, _ = interpret_with_qwen(args.instr)
         results.append(execute_plan(extracted, plan))
+
     elif args.gmail:
-
-        # 1) Autenticación con Gmail
         service = authenticate_gmail()
-
-        # 2) Listar correos recientes
         mails = list_messages(service, max_results=10)
         print("\n📬 Correos disponibles:")
         for i, m in enumerate(mails, 1):
@@ -88,7 +119,6 @@ def main():
         choice = int(input("👉 Elegí un correo (número): ")) - 1
         msg_id = mails[choice]["id"]
 
-        # 3) Obtener contenido del correo
         content = get_message_content(service, msg_id)
 
         if content["attachments"]:
@@ -99,18 +129,17 @@ def main():
             if use_text == "s":
                 transformed = process_text(content["text"], args.extract, args.instr)
             else:
-                # Si hay varios adjuntos, dejar elegir uno
                 if len(content["attachments"]) > 1:
                     att_choice = int(input("👉 Elegí un adjunto (número): ")) - 1
                     pdf_path = pathlib.Path(content["attachments"][att_choice])
                 else:
                     pdf_path = pathlib.Path(content["attachments"][0])
                 transformed = process_file(pdf_path, args.extract, args.instr)
+            results.append(transformed)
         else:
             print("⚠️ No hay adjuntos, se usará el texto del correo.")
             transformed = process_text(content["text"], args.extract, args.instr)
-
-        results.append(transformed)
+            results.append(transformed)
 
     elif args.files:
         for file_str in args.files:
@@ -122,17 +151,16 @@ def main():
 
             print(f"📄 Procesando: {pdf_path.name}")
             try:
-                transformed = process_file(pdf_path, args.extract, args.instr)
+                transformed = process_file(pdf_path, args.extract, args.instr, use_cache=args.default)
                 results.append(transformed)
             except Exception as e:
                 print(f"❌ Error procesando {pdf_path.name}: {e}")
                 any_error = True
                 continue
     else:
-        print("❌ Debés indicar --files o --gmail o --outlook")
+        print("❌ Debés indicar --files o --gmail o --outlook o --default")
         sys.exit(2)
 
-    # Guardar resultados
     for i, res in enumerate(results):
         out_path = outdir / f"resultado_{i+1}.json"
         out_path.write_text(json.dumps(res, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -144,4 +172,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

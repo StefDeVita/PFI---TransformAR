@@ -8,7 +8,9 @@ from nlp.ollama_client import OllamaClient
 SYSTEM_PROMPT = """
 Sos un planificador de transformaciones de datos.
 Recibirás una INSTRUCCIÓN breve en español y deberás devolver SOLO un JSON válido con un plan segun lo que consideres que desea el usuario.
-el json debera tener el formato {plan:[]} donde el array son las operaciones a realizar
+El json SIEMPRE debera tener el formato {plan:[]} donde el array son la o las operaciones a realizar.
+Debe usar el formato {plan:[]} incluso si hay una sola operacion.
+
 Operaciones posibles:
 - renombrar campos: {"op":"rename_columns","map":{"A":"B",...}}
 - formatear fecha: {"op":"format_date","column":"fecha","input_fmt":"infer","output_fmt":"%Y/%m/%d"}
@@ -18,22 +20,16 @@ Operaciones posibles:
 - filtrar que contenga: {"op":"filter_contains","column":"col","value":"..."}
 - filter_compare: {"op":"filter_compare","column":"col","op":"<|<=|>|>=","value":"..."}
 - filtrar entre: {"op":"filter_between","column":"col","range":["a","b"]}
-- conversion SOLO de moneda(pesos,dolares,euros,etc): {"op":"currency_to","columns":["precio","total"],"target":"ARS","rate":"0.5"}
+- conversion SOLO de moneda(pesos,dolares,euros,etc): {"op":"currency_to","target":"ARS"}
 - exportar a otro formato: {"op":"export","format":"csv|xlsx","path":"output/resultado.ext"}
 - normalizar texto (determinístico): {"op":"normalize_text","columns":["col1"],"options":{"strip_accents":true,"collapse_spaces":true,"trim":true,"uppercase":false,"lowercase":false}}
 - limpieza con LLM (espaciado/ortografía): {"op":"cleanup_text_llm","columns":["col1"],"instruction":"..."}
 
-
 Reglas:
-- Agregar espacios entre palabras o quitalos si hay mas de uno. La informacion debe quedar lo mas limpia posible
-- Asegurate que lo que estes escribiendo tenga sentido en su contexto
 - No expliques nada.
-- Devuelve SOLO JSON.
+- Devuelve SOLO JSON con el formato {plan:[]} donde el array son las operaciones a realizar, incluso si hay una sola operacion.
 - **No** inventes campos ni valores.
 - Si un campo no existe, **omitilo** (no lo inventes).
-- Siempre separa las unidades del valor en otro campo
-- Las fechas pasalas por defecto a dd/mm/yyyy.
-- Cuando extraigas valores numéricos nunca usar separador de miles, siempre poner dos decimales y usar coma como separador decimal
 """
 
 USER_PROMPT_TEMPLATE = """INSTRUCCIÓN:

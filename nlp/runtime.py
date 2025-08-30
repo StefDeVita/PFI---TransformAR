@@ -20,18 +20,20 @@ def parse_number(value: Any) -> Optional[float]:
     if value is None: return None
     v = str(value).strip()
     if not v: return None
-    if "," in v and "." in v:
-        if v.find(",") > v.find("."):
-            v = v.replace(".", "").replace(",", ".")
+    # quitar todo excepto dígitos, puntos, comas y signo
+    v_clean = re.sub(r"[^\d,.\-]", "", v)
+    if "," in v_clean and "." in v_clean:
+        if v_clean.find(",") > v_clean.find("."):
+            v_clean = v_clean.replace(".", "").replace(",", ".")
         else:
-            v = v.replace(",", "")
-    elif "," in v and "." not in v:
-        v = v.replace(",", ".")
-    v = re.sub(r"[^\d\.\-]+", "", v)
+            v_clean = v_clean.replace(",", "")
+    elif "," in v_clean and "." not in v_clean:
+        v_clean = v_clean.replace(",", ".")
     try:
-        return float(v)
+        return float(v_clean)
     except:
         return None
+
 
 def find_keys(obj: Any, target: str):
     matches = []

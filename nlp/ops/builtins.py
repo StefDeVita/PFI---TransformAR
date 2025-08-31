@@ -1,4 +1,5 @@
 # nlp/ops/builtins.py
+from config.settings import OLLAMA_INPUT_LIMIT
 from __future__ import annotations
 from typing import Dict, Any, List
 import json
@@ -11,7 +12,7 @@ try:
     from input.currency_converter import convert_currency_cached
 except ImportError:
     convert_currency_cached = None
-from config.settings import OLLAMA_INPUT_LIMIT
+
 
 def _llm_detect_tag(doc: Dict[str, Any]) -> Dict[str, Any]:
     try:

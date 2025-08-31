@@ -100,6 +100,41 @@ def _llm_detect_source(doc: Dict[str, Any]) -> Dict[str, Any]:
         return {"columns": cols, "source": src}
     except Exception:
         return {"columns": [], "source": None}
+    
+def _llm_detect_target(doc: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        from nlp.ollama_client import OllamaClient
+    except Exception:
+        return {"target": None}
+
+    doc_str = json.dumps(doc, ensure_ascii=False)[:max(3000, min(OLLAMA_INPUT_LIMIT, 9000))]
+    print(doc_str)
+    system = (
+        """
+            Devuelve solo un JSON con este formato:
+
+            {"target":""}
+
+            Reglas:
+
+            target: divisa en formato ISO 4217.
+        """)
+    user = f"Documento JSON (recortado):\n```\n{doc_str}\n```\nTransforma la divisa al formato ISO 4217."
+
+    try:
+        raw = OllamaClient().chat_json(system=system, user=user, options={"top_p": 0.9})
+        raw = (raw or "").strip()
+        if raw.startswith("```"):
+            raw = raw.strip("`")
+            i, j = raw.find("{"), raw.rfind("}")
+            if i >= 0 and j > i:
+                raw = raw[i:j+1]
+        data = json.loads(raw)
+        target = data.get("target")
+        return {"target": target}
+    except Exception:
+        return {"target": None}
+    
 
 @op("rename_columns")
 def rename_columns(doc: Dict[str, Any], step: Dict[str, Any]) -> bool:
@@ -169,7 +204,9 @@ def currency_to(doc: Dict[str, Any], step: Dict[str, Any]) -> bool:
     """
     from input.currency_converter import CurrencyConverter
 
-    target = (step.get("target") or "USD").upper()
+    targets = _llm_detect_target(step)
+    target = (targets.get("target") or "ARS").upper()
+    #target = (step.get("target") or "USD").upper()
     override_rate = step.get("rate")
     date = step.get("date") or "latest"
 
@@ -180,8 +217,10 @@ def currency_to(doc: Dict[str, Any], step: Dict[str, Any]) -> bool:
     cols: List[str] = det.get("columns") or []
     src_llm = det.get("source")
     tag = tags.get("tag")
-    print(tag)
     source = src_llm or "USD"
+
+    print(tag)
+    print(target)
 
     if not cols:
         # Nada que convertir

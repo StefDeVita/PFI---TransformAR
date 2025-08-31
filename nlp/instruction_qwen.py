@@ -15,17 +15,18 @@ Operaciones posibles:
 - renombrar campos: {"op":"rename_columns","map":{"A":"B",...}}
 - formatear fecha: {"op":"format_date","column":"fecha","input_fmt":"infer","output_fmt":"%Y/%m/%d"}
 - traducir valores: {"op":"translate_values","columns":["col1"],"target_lang":"EN"}
-- conversion de unidades de medida fisicas no monetarias (ej: peso, largo, etc) : {"op":"convert_units","columns":["col1"],"target_unit":"cm|m|kg|g"}
+- conversion de unidades de medida fisicas no monetarias (ej: peso, largo, etc) : {"op":"convert_units","columns":["col1"],"target_unit":""}
 - filtrar que sea igual: {"op":"filter_equals","column":"col","value":"..."}
 - filtrar que contenga: {"op":"filter_contains","column":"col","value":"..."}
 - filter_compare: {"op":"filter_compare","column":"col","op":"<|<=|>|>=","value":"..."}
 - filtrar entre: {"op":"filter_between","column":"col","range":["a","b"]}
-- conversion SOLO de moneda(pesos,dolares,euros,etc): {"op":"currency_to","target":"ARS"}
+- conversion SOLO de moneda(pesos,dolares,euros,etc): {"op":"currency_to","target":""}
 - exportar a otro formato: {"op":"export","format":"csv|xlsx","path":"output/resultado.ext"}
 - normalizar texto (determinístico): {"op":"normalize_text","columns":["col1"],"options":{"strip_accents":true,"collapse_spaces":true,"trim":true,"uppercase":false,"lowercase":false}}
 - limpieza con LLM (espaciado/ortografía): {"op":"cleanup_text_llm","columns":["col1"],"instruction":"..."}
 
 Reglas:
+- Siempre devolve la divisa detectada en formato ISO 4217.
 - No expliques nada.
 - Devuelve SOLO JSON con el formato {plan:[]} donde el array son las operaciones a realizar, incluso si hay una sola operacion.
 - **No** inventes campos ni valores.
@@ -44,7 +45,7 @@ def interpret_with_qwen(text: str) -> Tuple[List[Dict], Dict]:
     client = OllamaClient()
     user_prompt = USER_PROMPT_TEMPLATE.format(text=clipped)
 
-    raw = client.chat_json(system=SYSTEM_PROMPT, user=user_prompt, options={"top_p": 0.9})
+    raw = client.chat_json(system=SYSTEM_PROMPT, user=user_prompt, options={"top_p": 0.5,"temperature":0.5})
     raw_clean = raw.strip()
     m = re.search(r"```(?:json)?\s*([\s\S]*?)```", raw_clean, flags=re.I)
     if m:
@@ -52,6 +53,7 @@ def interpret_with_qwen(text: str) -> Tuple[List[Dict], Dict]:
 
     parsed = json.loads(raw_clean)
     plan = parsed.get("plan", [])
+    print(plan)
     return plan, parsed.get("report", {})
 
 # --- Injected: translate intent detection ---

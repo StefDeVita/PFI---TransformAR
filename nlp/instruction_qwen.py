@@ -15,7 +15,7 @@ Operaciones posibles:
 - renombrar campos: {"op":"rename_columns","map":{"A":"B",...}}
 - formatear fecha: {"op":"format_date","column":"fecha","input_fmt":"infer","output_fmt":"%Y/%m/%d"}
 - traducir valores: {"op":"translate_values","columns":["col1"],"target_lang":"EN"}
-- conversion de unidades de medida fisicas no monetarias (ej: peso, largo, etc) : {"op":"convert_units","columns":["col1"],"target_unit":""}
+- conversion de unidades de medida no monetarias (ej: peso, largo, etc) : {'op': 'convert_units', 'target_unit': '', 'conversion_value': ''}
 - filtrar que sea igual: {"op":"filter_equals","column":"col","value":"..."}
 - filtrar que contenga: {"op":"filter_contains","column":"col","value":"..."}
 - filter_compare: {"op":"filter_compare","column":"col","op":"<|<=|>|>=","value":"..."}
@@ -26,7 +26,9 @@ Operaciones posibles:
 - limpieza con LLM (espaciado/ortografía): {"op":"cleanup_text_llm","columns":["col1"],"instruction":"..."}
 
 Reglas:
+- Asegurate que lo que devuelvas tenga sentido en su contexto.
 - Siempre devolve la divisa detectada en formato ISO 4217.
+- Incluye solamente operaciones posibles del listado.
 - No expliques nada.
 - Devuelve SOLO JSON con el formato {plan:[]} donde el array son las operaciones a realizar, incluso si hay una sola operacion.
 - **No** inventes campos ni valores.
@@ -45,7 +47,7 @@ def interpret_with_qwen(text: str) -> Tuple[List[Dict], Dict]:
     client = OllamaClient()
     user_prompt = USER_PROMPT_TEMPLATE.format(text=clipped)
 
-    raw = client.chat_json(system=SYSTEM_PROMPT, user=user_prompt, options={"top_p": 0.5,"temperature":0.5})
+    raw = client.chat_json(system=SYSTEM_PROMPT, user=user_prompt, options={"top_p": 0.2,"temperature":0.2})
     raw_clean = raw.strip()
     m = re.search(r"```(?:json)?\s*([\s\S]*?)```", raw_clean, flags=re.I)
     if m:

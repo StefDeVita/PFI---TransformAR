@@ -45,6 +45,6 @@ Documento:
 \"\"\"{doc_text.strip()[:8000]}\"\"\""""
 
     client = OllamaClient()
-    raw = client.chat_json(system=SYSTEM_PROMPT, user=user_prompt, options={"top_p": 0.9})
+    raw = client.chat_json(system=SYSTEM_PROMPT, user=user_prompt, options={"top_p": 0.2})
     parsed = _extract_json_from_any(raw)
     return parsed

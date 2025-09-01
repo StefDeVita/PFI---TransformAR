@@ -1,107 +1,23 @@
 <!-- image -->
 
-Agustin.RodriguezLares@petrocuyo.com
+Date:
 
-bautista.fantauzzo@import-consultants.com
+Jun 30, 2025
 
-Fax:
+## Request for Quotation RFQ 0368
 
-Fax:
+Attn:
 
-Tel.:
+IC Import Consultants GmbH Sihleggstrasse 23 8832 Wollerau, Switzerland
 
-Tel.: +49 8122 17751-47
+Please provide a quote for the following items:
 
-Bautista Fantauzzo
+|   Item | Quantity   | Description          |
+|--------|------------|----------------------|
+|      1 | 100 meters | IGUS Cable CF5.10.12 |
 
-Sr. Agustin Rodriguez Lares
+Notes:
 
-Petroquimica Cuyo S.A.I.C.
+https://www.igus.eu/product/CF5
 
-IC Contacto:
-
-## Ref. Solicitud de cotización QP - 25001037. Para Cotizar 23/06/2025.
-
-Ensenada del 23.06.2025
-
-Fecha: 27.06.2025
-
-rev.: 09.07.2025
-
-## OFERTA IC 25.01312
-
-Estimado Sr. Agustin Rodriguez Lares, por medio de la presente le hacemos llegar nuestra oferta por los productos solicitados.
-
-| Pos.               | Cód. Cliente       | Cant.              | Un                 | Descripción                                           | Precio Unit.                 | EUR Total                    |
-|--------------------|--------------------|--------------------|--------------------|-------------------------------------------------------|------------------------------|------------------------------|
-| 1                  | M0000091           | 2                  | un                 | ELECTROBOMBASUMERGIBLE ZENIT DGO 200/2/80 A1CT5       | 1.058,33                     | 2.116,66                     |
-| Entrega: 3 Semanas |                    |                    |                    |                                                       |                              |                              |
-| 2                  |                    | 2                  | un                 | Electrobomba Sumergible ZENIT DGO 100/2/G50 V B0CT 50 | 763,93                       | 1.527,86                     |
-| Entrega: 3 Semanas | Entrega: 3 Semanas | Entrega: 3 Semanas | Entrega: 3 Semanas | Entrega: 3 Semanas                                    | Entrega: 3 Semanas           | Entrega: 3 Semanas           |
-|                    |                    |                    |                    |                                                       | Valor Total EUR-EXW 3.644,52 | Valor Total EUR-EXW 3.644,52 |
-
-Los precios están expresados en EURO condición EXW Schwaig - Ic Warehouse (Ex Works, Incoterms 2020).
-
-Condición de Pago: transferencia bancaria a los 30 dias fecha factura.
-
-La presente oferta es válida hasta el 26.07.2025.
-
-Deseamos que la presente oferta responda a sus necesidades.
-
-Quedamos a la espera de sus comentarios e instrucciones.
-
-Tel.: +41 (0)55 415 55 00 Mail: mail@import-consultants.com Web: www.import-consultants.ch
-
-Bank details:
-
-UBS Switzerland AG Bahnhofstrasse 45 8001 Zürich, Switzerland
-
-IBAN: CH77 0021 7217 1067 2360 M SWIFT: UBSWCHZH80A
-
-Account Owner:
-
-Pag.: 01/02
-
-<!-- image -->
-
-<!-- image -->
-
-## OFERTA IC 25.01312
-
-Saludamos a Ud. cordialmente,
-
-## Bautista Fantauzzo
-
-International Sales
-
-## Y o u r   P a r t n e r   i n   E u r o p e
-
-www.import-consultants.ch
-
-Billing address:
-
-Tel.: +41 (0)55 415 55 00
-
-Mail: mail@import-consultants.com
-
-Web: www.import-consultants.ch
-
-Delivery address:
-
-IC Import Consultants GmbH Hallbergmooser Str. 5 - Hinterhof Tor 10 85445 Oberding/Schwaig, Germany
-
-Bank details:
-
-UBS Switzerland AG Bahnhofstrasse 45 8001 Zürich, Switzerland
-
-IBAN: CH77 0021 7217 1067 2360 M SWIFT: UBSWCHZH80A
-
-Account Owner:
-
-Pag.: 02/02
-
-<!-- image -->
-
-Fecha: 27.06.2025
-
-rev.: 09.07.2025
+11-3150 Sunnyhurst Rd North Vancouver, BC V7K 2G3, Canada 778-668-9411

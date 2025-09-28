@@ -1,0 +1,1 @@
+python main.py --gmail --extract "informacion contacto, items, descripcion, cantidad, marca, fechas, moneda, precio total" --instr "traducir la descripcion a aleman, pasa la moneda a dolar"

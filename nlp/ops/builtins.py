@@ -89,7 +89,7 @@ def _llm_detect_source(doc: Dict[str, Any]) -> Dict[str, Any]:
     user = f"Documento JSON (recortado):\n```\n{doc_str}\n```\nDevolvé columns y source."
 
     try:
-        raw = OllamaClient().chat_json(system=system, user=user, options={"top_p": 0.7})
+        raw = OllamaClient().chat_json(system=system, user=user, options={"top_p": 0.2})
         raw = (raw or "").strip()
         if raw.startswith("```"):
             raw = raw.strip("`")
@@ -213,9 +213,6 @@ def currency_to(doc: Dict[str, Any], step: Dict[str, Any]) -> bool:
     src_llm = det.get("source")
     tag = tags.get("tag")
     source = src_llm or "USD"
-
-    print(tag)
-    print(target)
 
     if not cols:
         # Nada que convertir

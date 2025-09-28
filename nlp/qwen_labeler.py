@@ -22,6 +22,7 @@ Reglas:
 - Siempre separa las unidades del valor en otro campo
 - convertí las fechas a **dd/mm/yyyy** cuando el día/mes/año se puedan determinar con claridad. Si es ambiguo, **omití** el campo o dejá el valor original solo si es inequívoco.
 - Asegurate de que las **claves** del JSON coincidan exactamente con las pedidas por el usuario.
+- No repitas campos a menos que sea dentro de un array
 
 """
 
@@ -41,13 +42,13 @@ def _extract_json_from_any(raw: str) -> Dict[str, Any]:
 import re
 
 def extract_with_qwen(doc_text: str, extract_instr: str) -> Dict[str, Any]:
-    user_prompt = f"""EXTRAE lo siguiente **exactamente** como se pide:
+    user_prompt = f"""EXTRAE lo siguiente **exactamente** lo que se pide y como se pide:
 \"\"\"{extract_instr.strip()}\"\"\" 
 
 Documento:
 \"\"\"{doc_text.strip()[:8000]}\"\"\""""
 
     client = OllamaClient()
-    raw = client.chat_json(system=SYSTEM_PROMPT, user=user_prompt, options={"top_p": 0.7,"temperature": 0.7})
+    raw = client.chat_json(system=SYSTEM_PROMPT, user=user_prompt, options={"top_p": 0,"temperature": 0})
     parsed = _extract_json_from_any(raw)
     return parsed

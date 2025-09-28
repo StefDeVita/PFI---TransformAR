@@ -41,3 +41,10 @@ input/*.png
 *.pt
 *.joblib
 *.pickle
+
+input/*.json
+token.json
+outlook_token.json
+downloads/
+.env
+attachments/

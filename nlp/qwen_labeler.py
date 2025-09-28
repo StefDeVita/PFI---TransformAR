@@ -1,109 +1,54 @@
-from __future__ import annotations
-import json, logging, re
+# nlp/qwen_labeler.py
+from datetime import datetime
 from typing import Any, Dict
-
-from config.settings import DEFAULT_TAG_SCHEMA, OLLAMA_INPUT_LIMIT
+import json, re
 from nlp.ollama_client import OllamaClient
 
-log = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """Eres un asistente experto en documentos comerciales en español.
-Recibirás contenido en TEXTO/Markdown (salida de OCR/Docling).
-Debes extraer etiquetas estructuradas de facturas, ofertas, pedidos y cotizaciones.
-Responde EXCLUSIVAMENTE con un JSON VÁLIDO, sin texto adicional.
-Si un campo no aparece, usa string vacío, 0 o lista vacía según corresponda. No inventes.
+SYSTEM_PROMPT = """
+Sos un extractor de información de documentos empresariales.
+
+Tu tarea:
+- Extraer **exactamente** los campos que pide el usuario, con **nombres descriptivos y formatos tal como los solicita** revisa 3 veces la respuesta asegurando que el resultado tenga sentido en su contexto.
+- Devolver SIEMPRE un JSON plano, sin explicaciones ni texto adicional.
+
+Reglas:
+- Siempre inclui la moneda como el **código ISO de 3 letras** correspondiente.
+- Agregar espacios entre palabras que se encuentren o quitalos si hay mas de uno. La informacion debe quedar lo mas limpia posible
+- Asegurate que lo que estes escribiendo tenga sentido en su contexto
+- **No** inventes valores, coloca "null" de ser necesario.
+- Si un campo no existe, **omitilo** (no lo inventes).
+- **No inventes valores.** Si un campo no existe o no puede inferirse con alta confianza, **omitilo** (no lo agregues).
+- Siempre separa las unidades del valor en otro campo
+- convertí las fechas a **dd/mm/yyyy** cuando el día/mes/año se puedan determinar con claridad. Si es ambiguo, **omití** el campo o dejá el valor original solo si es inequívoco.
+- Asegurate de que las **claves** del JSON coincidan exactamente con las pedidas por el usuario.
+- No repitas campos a menos que sea dentro de un array
+
 """
 
-def _schema_to_string(schema: Dict[str, Any]) -> str:
-    def fmt(v):
-        if isinstance(v, dict):
-            return "{ " + ", ".join(f"\"{k}\": {fmt(vv)}" for k, vv in v.items()) + " }"
-        if isinstance(v, list) and v:
-            return "[ " + fmt(v[0]) + " ]"
-        if isinstance(v, str):
-            return v
-        return str(v)
-    return fmt(schema)
-
-def _build_user_prompt(md_text: str, schema: Dict[str, Any]) -> str:
-    schema_str = _schema_to_string(schema)
-    # ¡OJO! Todo adentro usa md_text, nunca 'text'
-    return f"""El siguiente contenido está en Markdown simple. Ignora #, **, tablas ASCII o '=== Página N ===';
-concéntrate solo en el contenido comercial y devuelve UN ÚNICO JSON válido con el siguiente esquema:
-
-{schema_str}
-
-DOCUMENTO (Markdown extraído):
-\"\"\"{md_text}\"\"\"
-"""
-
-def _extract_json_from_any(s: str) -> Dict[str, Any]:
-    """
-    Acepta JSON puro o JSON envuelto en ```json ...``` o texto extra.
-    Intenta localizar el primer objeto { ... } balanceado.
-    """
-    s = s.strip()
-
-    # Bloque de código markdown
-    m = re.search(r"```(?:json)?\s*([\s\S]*?)```", s, re.IGNORECASE)
+def _extract_json_from_any(raw: str) -> Dict[str, Any]:
+    raw_clean = raw.strip()
+    m = re.search(r"```(?:json)?\s*([\s\S]*?)```", raw_clean, flags=re.I)
     if m:
-        s = m.group(1).strip()
-
-    # Si ya es JSON directo
+        raw_clean = m.group(1).strip()
     try:
-        return json.loads(s)
-    except Exception:
-        pass
+        return json.loads(raw_clean)
+    except:
+        start = raw_clean.find("{")
+        end = raw_clean.rfind("}")
+        if start >= 0 and end > start:
+            return json.loads(raw_clean[start:end+1])
+        raise ValueError(f"No se pudo parsear JSON de Qwen: {raw[:300]}")
+import re
 
-    # Buscar primer objeto { ... } balanceado
-    start = s.find("{")
-    if start != -1:
-        depth = 0
-        for i, ch in enumerate(s[start:], start):
-            if ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-                if depth == 0:
-                    candidate = s[start:i+1]
-                    try:
-                        return json.loads(candidate)
-                    except Exception:
-                        break
+def extract_with_qwen(doc_text: str, extract_instr: str) -> Dict[str, Any]:
+    user_prompt = f"""EXTRAE lo siguiente **exactamente** lo que se pide y como se pide:
+\"\"\"{extract_instr.strip()}\"\"\" 
 
-    # Último intento: limpiar líneas tipo "Respuesta:" u otras y reintentar
-    cleaned = re.sub(r"^[^\{\[]+", "", s).strip()
-    return json.loads(cleaned)
+Documento:
+\"\"\"{doc_text.strip()[:8000]}\"\"\""""
 
-def tag_text_with_qwen(extracted_text: str, schema: Dict[str, Any] = None) -> Dict[str, Any]:
-    """
-    Recibe el texto Markdown de Docling y devuelve tags estructurados usando Qwen vía Ollama.
-    """
-    if not extracted_text or not extracted_text.strip():
-        return {}
-
-    # recortar si es muy largo (evitar desbordar el contexto del modelo)
-    md_text = extracted_text[:OLLAMA_INPUT_LIMIT]
-
-    schema = schema or DEFAULT_TAG_SCHEMA
-    user_prompt = _build_user_prompt(md_text, schema)
     client = OllamaClient()
-
-    raw = client.chat_json(system=SYSTEM_PROMPT, user=user_prompt, options={"top_p": 0.9})
-
-    try:
-        result = _extract_json_from_any(raw)
-    except Exception as e:
-        # Log para diagnóstico; reenviamos excepción con el texto recibido
-        log.warning("Respuesta no-JSON del modelo (primeros 500 chars): %s", raw[:500])
-        raise ValueError(f"No pude parsear JSON desde la respuesta del modelo: {e}")
-
-    # Normalizaciones suaves
-    if "_confidence" in result and isinstance(result["_confidence"], str):
-        try:
-            result["_confidence"] = float(result["_confidence"])
-        except Exception:
-            result["_confidence"] = 0.0
-    result.setdefault("_confidence", 0.0)
-
-    return result
+    raw = client.chat_json(system=SYSTEM_PROMPT, user=user_prompt, options={"top_p": 0,"temperature": 0})
+    parsed = _extract_json_from_any(raw)
+    return parsed

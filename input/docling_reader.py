@@ -1,7 +1,9 @@
 # input/docling_reader.py
 from __future__ import annotations
-import os
+import os, json
+from pathlib import Path
 from typing import Optional, List
+from datetime import datetime
 
 from config.settings import (
     DOCLING_DO_OCR,
@@ -9,18 +11,42 @@ from config.settings import (
     DOCLING_OCR_LANGS,
 )
 
+# 📦 Ruta de caché
+CACHE_FILE = Path("cache/docling_last.json")
+
+
+def _ensure_cache_dir():
+    CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+
+def save_docling_cache(md_text: str, meta: Optional[dict] = None):
+    """Guarda texto y metadatos en cache."""
+    _ensure_cache_dir()
+    payload = {
+        "text": md_text,
+        "meta": meta or {},
+        "saved_at": datetime.utcnow().isoformat() + "Z",
+    }
+    CACHE_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def load_docling_cache() -> dict:
+    """Carga cache en formato dict {text, meta, saved_at}."""
+    if not CACHE_FILE.exists():
+        raise FileNotFoundError("No hay cache previo de Docling. Ejecutá primero sin --default.")
+    return json.loads(CACHE_FILE.read_text(encoding="utf-8"))
+
+
 def extract_text_with_layout(file_path: str) -> str:
     """
-    Extrae texto de PDF usando EXCLUSIVAMENTE Docling con OCR de Tesseract.
-    - Activa OCR y detección automática de idioma (lang=["auto"]) o lista fija.
-    - Usa force_full_page_ocr=True para PDFs escaneados/mixtos.
-    - Exporta a Markdown (estructura simple por páginas/bloques).
+    Extrae texto de PDF usando Docling con OCR de Tesseract.
+    Exporta a Markdown y lo guarda en cache.
     """
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"No se encontró el archivo: {file_path}")
 
     try:
-        from pathlib import Path
+        from pathlib import Path as P
         from docling.datamodel.base_models import InputFormat
         from docling.datamodel.pipeline_options import (
             PdfPipelineOptions,
@@ -33,9 +59,8 @@ def extract_text_with_layout(file_path: str) -> str:
             "Instalá con: pip install docling"
         ) from e
 
-    # Configurar OCR de Tesseract con detección automática o lista fija de idiomas
+    # Configurar OCR
     ocr_options = TesseractCliOcrOptions(lang=DOCLING_OCR_LANGS)
-
     pipeline_options = PdfPipelineOptions(
         do_ocr=DOCLING_DO_OCR,
         force_full_page_ocr=DOCLING_FORCE_FULL_PAGE_OCR,
@@ -50,14 +75,13 @@ def extract_text_with_layout(file_path: str) -> str:
         }
     )
 
-    # Convertir y exportar a Markdown (suele ser lo más práctico para NLP posterior)
-    result = converter.convert(Path(file_path))
-    # Según la API actual, el documento está en .document
+    result = converter.convert(P(file_path))
     doc = getattr(result, "document", None) or result
+
     try:
         md = doc.export_to_markdown()
     except Exception:
-        # Fallback: intentar páginas -> blocks/elements -> text
+        # fallback a bloques de texto
         pages = getattr(doc, "pages", None)
         parts: List[str] = []
         if pages:
@@ -72,10 +96,13 @@ def extract_text_with_layout(file_path: str) -> str:
                 if lines:
                     parts.append(f"=== Página {i} ===\n" + "\n".join(lines))
             if parts:
-                return "\n\n".join(parts).strip()
-
-        # Último intento: atributos de texto planos
-        md = getattr(doc, "text", "") or getattr(doc, "content", "") or ""
+                md = "\n\n".join(parts)
+        md = md or getattr(doc, "text", "") or getattr(doc, "content", "")
 
     md = (md or "").strip()
+
+    # Guardar en cache
+    meta = {"source": file_path, "ext": Path(file_path).suffix.lower()}
+    save_docling_cache(md, meta)
+
     return md

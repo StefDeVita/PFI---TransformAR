@@ -1,0 +1,22 @@
+{
+  "id": "pedido_demo",
+  "name": "Pedido",
+  "description": "Plantilla con Cliente, Fecha, Producto",
+  "columns": [
+    {
+      "col": "A",
+      "title": "Cliente",
+      "example": "Nombre"
+    },
+    {
+      "col": "B",
+      "title": "Fecha",
+      "example": "dd/mm/aaaa"
+    },
+    {
+      "col": "C",
+      "title": "Producto",
+      "example": "Descripción"
+    }
+  ]
+}

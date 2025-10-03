@@ -53,6 +53,7 @@ def execute_plan(doc_or_list: Any, plan: List[Dict[str, Any]]) -> List[Dict[str,
         if keep:
             _post(doc)
             out.append(doc)
+    print(out)
     return out
 
 # --- registrar operaciones builtin por side-effect ---

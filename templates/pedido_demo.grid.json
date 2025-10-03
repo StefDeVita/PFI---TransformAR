@@ -5,18 +5,18 @@
   "columns": [
     {
       "col": "A",
-      "title": "Cliente",
-      "example": "Nombre"
+      "title": "Nombre del Cliente",
+      "example": ""
     },
     {
       "col": "B",
-      "title": "Fecha",
-      "example": "dd/mm/aaaa"
+      "title": "fecha",
+      "example": "formatea fecha a dd/mm/aaaa"
     },
     {
       "col": "C",
-      "title": "Producto",
-      "example": "Descripción"
+      "title": "descripcion productos",
+      "example": "traduci descripcion_productos a aleman"
     }
   ]
 }

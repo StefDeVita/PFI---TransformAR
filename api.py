@@ -1,4 +1,3 @@
-
 # api.py (grid-templates aligned)
 from __future__ import annotations
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query, Form
@@ -9,14 +8,14 @@ from typing import List, Optional, Literal, Dict, Any
 import pathlib, os, json, re, unicodedata
 import tempfile
 
-
 # --- Importar pipeline y fuentes existentes ---
 from input.docling_reader import extract_text_with_layout
 from nlp.qwen_labeler import extract_with_qwen
 from nlp.instruction_qwen import interpret_with_qwen
 from nlp.apply_plan import execute_plan
 from input.gmail_reader import authenticate_gmail, list_messages as gmail_list, get_message_content as gmail_get
-from input.outlook_reader import authenticate_outlook, get_token, list_messages_outlook, get_message_body, get_attachments
+from input.outlook_reader import authenticate_outlook, get_token, list_messages_outlook, get_message_body, \
+    get_attachments
 
 UPLOAD_DIR = pathlib.Path("uploads")
 TEMPLATES_DIR = pathlib.Path("templates")
@@ -33,12 +32,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # --------- Grid Template Model (alineado al front) ---------
 
 class GridColumn(BaseModel):
     col: str = Field(..., description="Letra de columna (A,B,C,...)")
-    title: str = Field(..., description="Encabezado (fila 1)")
-    example: Optional[str] = Field("", description="Formato deseado (fila 2)")
+    title: str = Field(..., description="Descripción del dato a extraer (fila 1)")
+    example: Optional[str] = Field(
+        "",
+        description=(
+            "Instrucción de transformación que se debe aplicar al dato extraído (fila 2)"
+        ),
+    )
+
 
 class GridTemplate(BaseModel):
     id: str
@@ -56,7 +62,7 @@ class GridTemplate(BaseModel):
             for ch in s:
                 if 'A' <= ch <= 'Z':
                     acc = acc * 26 + (ord(ch) - 64)
-            return acc or 10**9
+            return acc or 10 ** 9
 
         def key(item):
             if isinstance(item, dict):
@@ -65,10 +71,12 @@ class GridTemplate(BaseModel):
 
         return sorted(v, key=key)
 
+
 class TemplateMeta(BaseModel):
     id: str
     name: str
     description: Optional[str] = None
+
 
 # DTO de proceso
 class GmailSelection(BaseModel):
@@ -76,15 +84,19 @@ class GmailSelection(BaseModel):
     use_text: bool = False
     attachment_index: Optional[int] = None
 
+
 class OutlookSelection(BaseModel):
     message_id: str
     use_text: bool = False
     attachment_index: Optional[int] = None
 
+
 class ManualDocSelection(BaseModel):
     file_id: str
 
+
 Method = Literal["document", "gmail", "outlook", "text"]
+
 
 class ProcessRequest(BaseModel):
     method: Method
@@ -94,6 +106,7 @@ class ProcessRequest(BaseModel):
     outlook: Optional[OutlookSelection] = None
     text: Optional[str] = None
 
+
 # --------- Helpers ---------
 
 def _slug(s: str) -> str:
@@ -101,38 +114,48 @@ def _slug(s: str) -> str:
     s = re.sub(r'[^a-zA-Z0-9]+', '_', s).strip('_').lower()
     return s or 'col'
 
+
 def _compile_grid_to_instructions(gt: GridTemplate) -> Dict[str, str]:
     """
-    Dado un grid del front, genera dos instrucciones:
-    - extract_instr: qué campos buscar
-    - transform_instr: normalizaciones básicas según example/format
+    Dado un grid del front, genera las instrucciones necesarias para Qwen:
+    - extract_instr: qué campos extraer y bajo qué clave devolverlos.
+    - transform_instr: transformaciones a aplicar sobre cada campo extraído.
     """
+
     fields = []
     transforms = []
+
     for col in gt.columns:
         key = _slug(col.title)
-        fmt = (col.example or "").strip()
+        title = (col.title or "").strip()
+        transform_text = (col.example or "").strip()
 
-        # Heurísticas simples de tipos
-        if re.search(r'\b(dd|dd)\s*/\s*(mm)\s*/\s*(aaaa|yyyy)\b', fmt, re.I):
-            fields.append(f"{key}: fecha")
-            transforms.append(f"Convertí {key} a YYYY-MM-DD")
-        elif re.search(r'\b(usd|eur|ars|\$)\b', fmt, re.I):
-            fields.append(f"{key}: monto")
-        elif re.search(r'\b(cant|cantidad|qty)\b', key):
-            fields.append(f"{key}: numero")
+        if title:
+            fields.append(f"- Clave '{key}': {title}")
         else:
-            fields.append(f"{key}: texto")
+            fields.append(f"- Clave '{key}': dato sin descripción especificada")
 
-    extract_instr = "Extrae: " + ", ".join(fields)
-    transform_instr = "; ".join(transforms) if transforms else "Conservá los valores tal como aparecen."
+        if transform_text:
+            transforms.append(
+                transform_text
+            )
+
+    extract_instr = "Extrae un JSON con las siguientes claves y valores:\n" + "\n".join(fields)
+    transform_instr = (
+        " ".join(transforms)
+        if transforms
+        else "No apliques transformaciones adicionales; deja los valores tal como fueron extraídos."
+    )
+
     return {"extract_instr": extract_instr, "transform_instr": transform_instr}
+
 
 def _save_template(gt: GridTemplate):
     path = TEMPLATES_DIR / f"{gt.id}.grid.json"
     # v2: serializamos así (soporta acentos con ensure_ascii=False)
     payload = json.dumps(gt.model_dump(), ensure_ascii=False, indent=2)
     path.write_text(payload, encoding="utf-8")
+
 
 def _load_template_grid(tid: str) -> GridTemplate:
     path = TEMPLATES_DIR / f"{tid}.grid.json"
@@ -141,24 +164,28 @@ def _load_template_grid(tid: str) -> GridTemplate:
     data = json.loads(path.read_text(encoding="utf-8"))
     return GridTemplate(**data)
 
+
 def _list_template_meta() -> List[TemplateMeta]:
     metas = []
     for p in TEMPLATES_DIR.glob("*.grid.json"):
         try:
             d = json.loads(p.read_text(encoding="utf-8"))
-            metas.append(TemplateMeta(id=d["id"], name=d["name"], description=d.get("description","")))
+            metas.append(TemplateMeta(id=d["id"], name=d["name"], description=d.get("description", "")))
         except Exception:
             continue
     return metas
+
 
 def _pipeline_from_text(text: str, extract_instr: str, transform_instr: str) -> List[Dict[str, Any]]:
     extracted = extract_with_qwen(text, extract_instr)
     plan, _ = interpret_with_qwen(transform_instr)
     return execute_plan(extracted, plan)
 
+
 def _pipeline_from_file(path: pathlib.Path, extract_instr: str, transform_instr: str) -> List[Dict[str, Any]]:
     md = extract_text_with_layout(str(path))
     return _pipeline_from_text(md, extract_instr, transform_instr)
+
 
 # --------- Endpoints ---------
 
@@ -166,11 +193,12 @@ def _pipeline_from_file(path: pathlib.Path, extract_instr: str, transform_instr:
 def health():
     return {"ok": True}
 
+
 # Subida de documento manual
 @app.post("/process/document", summary="Sube un archivo, lo procesa con una plantilla y lo descarta")
 async def process_document_with_template(
-    template_id: str = Form(...),
-    file: UploadFile = File(...)
+        template_id: str = Form(...),
+        file: UploadFile = File(...)
 ):
     # 1) leer el archivo en un tmp file
     content = await file.read()
@@ -184,10 +212,8 @@ async def process_document_with_template(
         compiled = _compile_grid_to_instructions(gtpl)
         extract_instr = compiled["extract_instr"]
         transform_instr = compiled["transform_instr"]
-
         # 3) ejecutar pipeline sobre el tmp file
         result = _pipeline_from_file(pathlib.Path(tmp_path), extract_instr, transform_instr)
-
         return {
             "template_id": template_id,
             "compiled": compiled,
@@ -199,7 +225,8 @@ async def process_document_with_template(
             pathlib.Path(tmp_path).unlink(missing_ok=True)
         except Exception:
             pass
-        
+
+
 @app.post("/input/document")
 async def upload_document(file: UploadFile = File(...)):
     safe = (file.filename or "upload.bin").replace("/", "_").replace("\\", "_")
@@ -208,18 +235,21 @@ async def upload_document(file: UploadFile = File(...)):
         f.write(await file.read())
     return {"file_id": safe, "path": str(dest)}
 
+
 # Gmail
 @app.get("/input/gmail/messages")
 def gmail_messages(limit: int = Query(10, ge=1, le=50)):
     service = authenticate_gmail()
     mails = gmail_list(service, max_results=limit)
-    return {"messages": [{"id": m["id"], "from": m.get("from"), "subject": m.get("subject") } for m in mails]}
+    return {"messages": [{"id": m["id"], "from": m.get("from"), "subject": m.get("subject")} for m in mails]}
+
 
 @app.get("/input/gmail/messages/{msg_id}")
 def gmail_message_detail(msg_id: str):
     service = authenticate_gmail()
     content = gmail_get(service, msg_id)
-    return {"text": content.get("text",""), "attachments": content.get("attachments",[])}
+    return {"text": content.get("text", ""), "attachments": content.get("attachments", [])}
+
 
 # Outlook
 @app.get("/input/outlook/messages")
@@ -230,8 +260,10 @@ def outlook_messages(limit: int = Query(10, ge=1, le=50)):
     out = []
     for m in mails:
         sender = (m.get("sender") or {}).get("emailAddress", {}).get("address")
-        out.append({"id": m.get("id"), "from": sender, "subject": m.get("subject"), "hasAttachments": m.get("hasAttachments", False)})
+        out.append({"id": m.get("id"), "from": sender, "subject": m.get("subject"),
+                    "hasAttachments": m.get("hasAttachments", False)})
     return {"messages": out}
+
 
 @app.get("/input/outlook/messages/{msg_id}")
 def outlook_message_detail(msg_id: str):
@@ -241,19 +273,23 @@ def outlook_message_detail(msg_id: str):
     atts = get_attachments(token, msg_id)
     return {"text": text or "", "attachments": atts or []}
 
+
 # Plantillas (grid)
 @app.get("/templates", response_model=List[TemplateMeta])
 def list_templates():
     return _list_template_meta()
 
+
 @app.get("/templates/{tid}", response_model=GridTemplate)
 def get_template(tid: str):
     return _load_template_grid(tid)
+
 
 @app.post("/templates", response_model=GridTemplate, summary="Crear/Actualizar plantilla desde el front (grid)")
 def upsert_template(gt: GridTemplate):
     _save_template(gt)
     return gt
+
 
 # Proceso
 @app.post("/process")
@@ -274,6 +310,7 @@ def process(req: ProcessRequest):
         path = UPLOAD_DIR / req.manual.file_id
         if not path.exists(): raise HTTPException(404, "Archivo no encontrado")
         result = _pipeline_from_file(path, extract_instr, transform_instr)
+        print(result)
         return {"result": result, "compiled": compiled}
 
     elif req.method == "gmail":
@@ -281,7 +318,7 @@ def process(req: ProcessRequest):
         service = authenticate_gmail()
         content = gmail_get(service, req.gmail.message_id)
         if req.gmail.use_text or not content.get("attachments"):
-            text = content.get("text","")
+            text = content.get("text", "")
             if not text: raise HTTPException(400, "El correo no tiene texto utilizable.")
         else:
             atts = content.get("attachments") or []

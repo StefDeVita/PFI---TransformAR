@@ -22,4 +22,4 @@ AUTO_TEXT_LLM: bool = bool(int(os.getenv("AUTO_TEXT_LLM", "1")))
 # Límite de chars por string a enviar al LLM
 AUTO_TEXT_MAXCHARS: int = int(os.getenv("AUTO_TEXT_MAXCHARS", "800"))
 # Normalizar a ISO (YYYY-MM-DD) cualquier clave que contenga 'fecha'
-AUTO_ISO_DATES_DEFAULT: bool = bool(int(os.getenv("AUTO_ISO_DATES_DEFAULT", "1")))
+AUTO_ISO_DATES_DEFAULT: bool = bool(int(os.getenv("AUTO_ISO_DATES_DEFAULT", "0")))

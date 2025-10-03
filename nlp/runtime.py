@@ -54,48 +54,49 @@ def format_date(val: Any, input_fmt: str, output_fmt: str) -> Optional[str]:
     s = norm(val)
     if not s:
         return None
+    out = output_fmt or "%Y-%m-%d"
+
+    # Caso con formato explícito
     if input_fmt and input_fmt != "infer":
         try:
-            return datetime.strptime(s, input_fmt).strftime(output_fmt)
+            return datetime.strptime(s, input_fmt).strftime(out)
         except Exception:
             pass
+
+    # Inferencia con formatos numéricos comunes
     m = re.search(r"(\d{1,4}[./\-]\d{1,2}[./\-]\d{2,4})", s)
     s_try = m.group(1) if m else s
     fmts = ("%Y-%m-%d","%d/%m/%Y","%d-%m-%Y","%Y/%m/%d","%d.%m.%Y",
             "%d/%m/%y","%d-%m-%y","%y-%m-%d","%m/%d/%Y","%m-%d-%Y")
     for f in fmts:
         try:
-            return datetime.strptime(s_try, f).strftime("%Y-%m-%d")
+            return datetime.strptime(s_try, f).strftime(out)
         except Exception:
             pass
-    months = {
-        "enero":"01","ene":"01","febrero":"02","feb":"02","marzo":"03","mar":"03","abril":"04","abr":"04",
-        "mayo":"05","may":"05","junio":"06","jun":"06","julio":"07","jul":"07","agosto":"08","ago":"08",
-        "septiembre":"09","setiembre":"09","sep":"09","sept":"09","octubre":"10","oct":"10",
-        "noviembre":"11","nov":"11","diciembre":"12","dic":"12",
-        "january":"01","jan":"01","february":"02","feb":"02","march":"03","mar":"03","april":"04","apr":"04",
-        "may":"05","june":"06","jun":"06","july":"07","jul":"07","august":"08","aug":"08",
-        "september":"09","sept":"09","sep":"09","october":"10","oct":"10",
-        "november":"11","nov":"11","december":"12","dec":"12",
-    }
-    def _y(y: str) -> int:
-        yi = int(y)
-        return yi + (2000 if yi < 70 else 1900) if len(y) == 2 else yi
-    st = s.lower()
-    rx_es = re.compile(r"\b(?P<d>\d{1,2})\s*(?:de\s+)?(?P<m>[a-záéíóúüñ]{3,15})\s*(?:de\s+)?(?P<y>\d{2,4})\b")
+
+    # Inferencia con nombres de mes (es/en). En lugar de construir
+    # un string ISO a mano, armamos un datetime y formateamos con `out`.
+    months = { ... }  # (dejá tu dict como está)
+    st = s.strip().lower()
+
+    rx_es = re.compile(r"\b(?P<d>\d{1,2})\s+de\s+(?P<m>[a-záéíóúüñ]{3,15})\s+de\s+(?P<y>\d{2,4})\b")
     m = rx_es.search(st)
     if m and m.group("m") in months:
         try:
-            return f"{_y(m.group('y')):04d}-{int(months[m.group('m')]):02d}-{int(m.group('d')):02d}"
+            dt = datetime(_y(m.group("y")), int(months[m.group("m")]), int(m.group("d")))
+            return dt.strftime(out)
         except Exception:
             pass
+
     rx_en = re.compile(r"\b(?P<m>[a-záéíóúüñ]{3,15})\s+(?P<d>\d{1,2})(?:,\s*)?(?P<y>\d{2,4})\b")
     m = rx_en.search(st)
     if m and m.group("m") in months:
         try:
-            return f"{_y(m.group('y')):04d}-{int(months[m.group('m')]):02d}-{int(m.group('d')):02d}"
+            dt = datetime(_y(m.group("y")), int(months[m.group("m")]), int(m.group("d")))
+            return dt.strftime(out)
         except Exception:
             pass
+
     return None
 
 def iso_dates_everywhere(obj: Any):

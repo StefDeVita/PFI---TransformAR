@@ -37,8 +37,13 @@ app.add_middleware(
 
 class GridColumn(BaseModel):
     col: str = Field(..., description="Letra de columna (A,B,C,...)")
-    title: str = Field(..., description="Encabezado (fila 1)")
-    example: Optional[str] = Field("", description="Formato deseado (fila 2)")
+    title: str = Field(..., description="Descripción del dato a extraer (fila 1)")
+    example: Optional[str] = Field(
+        "",
+        description=(
+            "Instrucción de transformación que se debe aplicar al dato extraído (fila 2)"
+        ),
+    )
 
 class GridTemplate(BaseModel):
     id: str
@@ -103,29 +108,36 @@ def _slug(s: str) -> str:
 
 def _compile_grid_to_instructions(gt: GridTemplate) -> Dict[str, str]:
     """
-    Dado un grid del front, genera dos instrucciones:
-    - extract_instr: qué campos buscar
-    - transform_instr: normalizaciones básicas según example/format
+    Dado un grid del front, genera las instrucciones necesarias para Qwen:
+    - extract_instr: qué campos extraer y bajo qué clave devolverlos.
+    - transform_instr: transformaciones a aplicar sobre cada campo extraído.
     """
+
     fields = []
     transforms = []
+
     for col in gt.columns:
         key = _slug(col.title)
-        fmt = (col.example or "").strip()
+        title = (col.title or "").strip()
+        transform_text = (col.example or "").strip()
 
-        # Heurísticas simples de tipos
-        if re.search(r'\b(dd|dd)\s*/\s*(mm)\s*/\s*(aaaa|yyyy)\b', fmt, re.I):
-            fields.append(f"{key}: fecha")
-            transforms.append(f"Convertí {key} a YYYY-MM-DD")
-        elif re.search(r'\b(usd|eur|ars|\$)\b', fmt, re.I):
-            fields.append(f"{key}: monto")
-        elif re.search(r'\b(cant|cantidad|qty)\b', key):
-            fields.append(f"{key}: numero")
+        if title:
+            fields.append(f"- Clave '{key}': {title}")
         else:
-            fields.append(f"{key}: texto")
+            fields.append(f"- Clave '{key}': dato sin descripción especificada")
 
-    extract_instr = "Extrae: " + ", ".join(fields)
-    transform_instr = "; ".join(transforms) if transforms else "Conservá los valores tal como aparecen."
+        if transform_text:
+            transforms.append(
+                f"{transform_text} sobre la clave '{key}' ({title or 'sin descripción'})"
+            )
+
+    extract_instr = "Extrae un JSON con las siguientes claves y valores:\n" + "\n".join(fields)
+    transform_instr = (
+        " ".join(transforms)
+        if transforms
+        else "No apliques transformaciones adicionales; deja los valores tal como fueron extraídos."
+    )
+
     return {"extract_instr": extract_instr, "transform_instr": transform_instr}
 
 def _save_template(gt: GridTemplate):

@@ -38,7 +38,12 @@ app.add_middleware(
 class GridColumn(BaseModel):
     col: str = Field(..., description="Letra de columna (A,B,C,...)")
     title: str = Field(..., description="Encabezado (fila 1)")
-    example: Optional[str] = Field("", description="Formato deseado (fila 2)")
+    example: Optional[str] = Field(
+        "",
+        description=(
+            "Transformación que debe aplicarse al campo indicado por 'title' (fila 2)"
+        ),
+    )
 
 class GridTemplate(BaseModel):
     id: str
@@ -103,29 +108,52 @@ def _slug(s: str) -> str:
 
 def _compile_grid_to_instructions(gt: GridTemplate) -> Dict[str, str]:
     """
-    Dado un grid del front, genera dos instrucciones:
-    - extract_instr: qué campos buscar
-    - transform_instr: normalizaciones básicas según example/format
+    Dado un grid del front, genera las instrucciones necesarias para Qwen:
+    - extract_instr: qué campos buscar y de qué tipo son.
+    - transform_instr: plan de transformaciones a ejecutar con interpret_with_qwen.
     """
+
+    def _infer_type(title: str, transform_text: str) -> str:
+        def _normalize(text: str) -> str:
+            normalized = unicodedata.normalize('NFKD', text.lower())
+            return ''.join(c for c in normalized if not unicodedata.combining(c))
+
+        title_norm = _normalize(title)
+        transform_norm = _normalize(transform_text)
+
+        date_kw = ["fecha", "date", "dia"]
+        money_kw = ["monto", "importe", "total", "precio", "amount", "valor"]
+        number_kw = ["cantidad", "cant", "qty", "numero", "unidad", "units"]
+
+        if any(kw in title_norm for kw in date_kw) or re.search(r"\b(aaaa|yyyy)\b", transform_norm):
+            return "fecha"
+        if any(kw in title_norm for kw in money_kw) or re.search(r"\b(usd|eur|ars|\$)\b", transform_text.lower()):
+            return "monto"
+        if any(kw in title_norm for kw in number_kw) or "numero" in transform_norm:
+            return "numero"
+        return "texto"
+
     fields = []
     transforms = []
+
     for col in gt.columns:
         key = _slug(col.title)
-        fmt = (col.example or "").strip()
+        transform_text = (col.example or "").strip()
+        field_type = _infer_type(col.title, transform_text)
+        fields.append(f"{key}: {field_type}")
 
-        # Heurísticas simples de tipos
-        if re.search(r'\b(dd|dd)\s*/\s*(mm)\s*/\s*(aaaa|yyyy)\b', fmt, re.I):
-            fields.append(f"{key}: fecha")
-            transforms.append(f"Convertí {key} a YYYY-MM-DD")
-        elif re.search(r'\b(usd|eur|ars|\$)\b', fmt, re.I):
-            fields.append(f"{key}: monto")
-        elif re.search(r'\b(cant|cantidad|qty)\b', key):
-            fields.append(f"{key}: numero")
-        else:
-            fields.append(f"{key}: texto")
+        if transform_text:
+            transforms.append(
+                f"Aplicá {transform_text} al campo {key} ({col.title})"
+            )
 
     extract_instr = "Extrae: " + ", ".join(fields)
-    transform_instr = "; ".join(transforms) if transforms else "Conservá los valores tal como aparecen."
+    transform_instr = (
+        ". ".join(transforms)
+        if transforms
+        else "No apliques transformaciones adicionales."
+    )
+
     return {"extract_instr": extract_instr, "transform_instr": transform_instr}
 
 def _save_template(gt: GridTemplate):

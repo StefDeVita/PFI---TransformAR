@@ -1,0 +1,22 @@
+{
+  "id": "Pedido",
+  "name": "Pedido",
+  "description": "Plantilla con Cliente, Fecha, Producto",
+  "columns": [
+    {
+      "col": "A",
+      "title": "Nombre del Cliente",
+      "example": ""
+    },
+    {
+      "col": "B",
+      "title": "fecha",
+      "example": "formatea fecha a dd/mm/aaaa"
+    },
+    {
+      "col": "C",
+      "title": "descripcion productos",
+      "example": "traduci descripcion_productos a aleman"
+    }
+  ]
+}

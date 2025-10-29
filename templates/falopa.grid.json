@@ -1,0 +1,22 @@
+{
+  "id": "falopa",
+  "name": "Falopita",
+  "description": "Aguante la fafaaaaa",
+  "columns": [
+    {
+      "col": "A",
+      "title": "Cliente",
+      "example": "Nombre"
+    },
+    {
+      "col": "B",
+      "title": "Fecha",
+      "example": "dd/mm/aaaa"
+    },
+    {
+      "col": "C",
+      "title": "Producto",
+      "example": "Descripción"
+    }
+  ]
+}

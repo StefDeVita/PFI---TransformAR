@@ -25,9 +25,16 @@ TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="TransformAR API", version="0.2.0")
 
+ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:4200",
+    # "https://dominio.com",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -224,7 +231,7 @@ async def login(credentials: LoginRequest):
     if not user:
         raise HTTPException(
             status_code=401,
-            detail="Invalid credentials"
+            detail="Credenciales inválidas"
         )
 
     # Create JWT token

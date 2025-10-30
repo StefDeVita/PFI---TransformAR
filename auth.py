@@ -154,7 +154,7 @@ async def authenticate_user(email: str, password: str) -> Optional[Dict[str, Any
         user_data['id'] = user_doc.id
 
         # Verify password
-        if not verify_password(password, user_data.get('password', '')):
+        if not password == user_data.get('password', ''):
             return None
 
         # Remove password from returned data

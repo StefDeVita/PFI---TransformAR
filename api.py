@@ -16,6 +16,7 @@ from nlp.apply_plan import execute_plan
 from input.gmail_reader import authenticate_gmail, list_messages as gmail_list, get_message_content as gmail_get
 from input.outlook_reader import authenticate_outlook, get_token, list_messages_outlook, get_message_body, \
     get_attachments
+from auth import authenticate_user, create_access_token, create_password_reset_token, send_password_reset_email
 
 UPLOAD_DIR = pathlib.Path("uploads")
 TEMPLATES_DIR = pathlib.Path("templates")
@@ -24,9 +25,16 @@ TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="TransformAR API", version="0.2.0")
 
+ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:4200",
+    # "https://dominio.com",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -105,6 +113,22 @@ class ProcessRequest(BaseModel):
     gmail: Optional[GmailSelection] = None
     outlook: Optional[OutlookSelection] = None
     text: Optional[str] = None
+
+
+# --------- Authentication Models ---------
+
+class LoginRequest(BaseModel):
+    email: str = Field(..., description="User's email address")
+    password: str = Field(..., description="User's password")
+
+
+class LoginResponse(BaseModel):
+    authtoken: str = Field(..., description="JWT authentication token")
+    user: Dict[str, Any] = Field(..., description="User data (without password)")
+
+
+class RecoverPasswordRequest(BaseModel):
+    email: str = Field(..., description="Email address to send recovery link to")
 
 
 # --------- Helpers ---------
@@ -192,6 +216,55 @@ def _pipeline_from_file(path: pathlib.Path, extract_instr: str, transform_instr:
 @app.get("/health")
 def health():
     return {"ok": True}
+
+
+# --------- Authentication Endpoints ---------
+
+@app.post("/auth/login", response_model=LoginResponse, summary="Authenticate user and return auth token")
+async def login(credentials: LoginRequest):
+    """
+    Authenticate user with email and password.
+    Returns a JWT token to be set in a cookie on the frontend.
+    """
+    user = await authenticate_user(credentials.email, credentials.password)
+
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="Credenciales inválidas"
+        )
+
+    # Create JWT token
+    token_data = {
+        "sub": user.get("id"),
+        "email": user.get("email")
+    }
+    access_token = create_access_token(token_data)
+
+    return LoginResponse(
+        authtoken=access_token,
+        user=user
+    )
+
+
+@app.post("/auth/recover-password", summary="Send password recovery email")
+async def recover_password(request: RecoverPasswordRequest):
+    """
+    Send password recovery email to the specified address.
+    Returns success even if user doesn't exist (security best practice).
+    """
+    # Create reset token (returns None if user doesn't exist)
+    reset_token = await create_password_reset_token(request.email)
+
+    # Only send email if user exists
+    if reset_token:
+        await send_password_reset_email(request.email, reset_token)
+
+    # Always return success to prevent email enumeration attacks
+    return {
+        "success": True,
+        "message": "If the email exists in our system, a recovery link has been sent."
+    }
 
 
 # Subida de documento manual

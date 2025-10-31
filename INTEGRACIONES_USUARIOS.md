@@ -145,6 +145,40 @@ Response:
 }
 ```
 
+### Verificar Estado de una Integración
+
+Puedes verificar el estado de cada integración individualmente:
+
+```http
+GET /integrations/{servicio}/status
+Authorization: Bearer {token}
+
+Servicios disponibles: gmail, outlook, whatsapp, telegram
+
+Response (cuando está conectado):
+{
+  "connected": true,
+  "service": "gmail",
+  "metadata": {
+    "email": "user@gmail.com",
+    "provider": "gmail"
+  }
+}
+
+Response (cuando NO está conectado):
+{
+  "connected": false,
+  "service": "gmail",
+  "metadata": null
+}
+```
+
+**Ejemplos:**
+- `GET /integrations/gmail/status` - Verifica si Gmail está conectado
+- `GET /integrations/outlook/status` - Verifica si Outlook está conectado
+- `GET /integrations/whatsapp/status` - Verifica si WhatsApp está conectado
+- `GET /integrations/telegram/status` - Verifica si Telegram está conectado
+
 ---
 
 ## Flujos de Conexión
@@ -189,7 +223,24 @@ El backend:
 - Guarda tokens en Firestore
 - Redirige al frontend con mensaje de éxito
 
-**Paso 4: Desconectar**
+**Paso 4: Verificar estado**
+
+```http
+GET /integrations/gmail/status
+Authorization: Bearer {token}
+
+Response:
+{
+  "connected": true,
+  "service": "gmail",
+  "metadata": {
+    "email": "user@gmail.com",
+    "provider": "gmail"
+  }
+}
+```
+
+**Paso 5: Desconectar**
 
 ```http
 DELETE /integrations/gmail/disconnect
@@ -215,6 +266,9 @@ POST /integrations/outlook/connect
 
 GET /integrations/outlook/callback?code=...&state=...
 → Guarda tokens y redirige al frontend
+
+GET /integrations/outlook/status
+→ Verifica si está conectado
 
 DELETE /integrations/outlook/disconnect
 → Elimina credenciales
@@ -266,7 +320,24 @@ Response:
 
 El backend valida las credenciales llamando a la API de WhatsApp antes de guardar.
 
-**Paso 3: Desconectar**
+**Paso 3: Verificar estado**
+
+```http
+GET /integrations/whatsapp/status
+Authorization: Bearer {token}
+
+Response:
+{
+  "connected": true,
+  "service": "whatsapp",
+  "metadata": {
+    "phone_number": "+5491112345678",
+    "provider": "whatsapp"
+  }
+}
+```
+
+**Paso 4: Desconectar**
 
 ```http
 DELETE /integrations/whatsapp/disconnect
@@ -318,7 +389,25 @@ Response:
 
 El backend valida el token llamando a `getMe` de Telegram API antes de guardar.
 
-**Paso 3: Desconectar**
+**Paso 3: Verificar estado**
+
+```http
+GET /integrations/telegram/status
+Authorization: Bearer {token}
+
+Response:
+{
+  "connected": true,
+  "service": "telegram",
+  "metadata": {
+    "bot_username": "my_bot",
+    "bot_name": "My Bot",
+    "provider": "telegram"
+  }
+}
+```
+
+**Paso 4: Desconectar**
 
 ```http
 DELETE /integrations/telegram/disconnect
@@ -491,6 +580,83 @@ function MyIntegrations() {
       ))}
     </div>
   );
+}
+```
+
+### Ejemplo 4: Verificar Estado de una Integración
+
+```jsx
+function CheckIntegrationStatus() {
+  const [gmailStatus, setGmailStatus] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const checkGmailStatus = async () => {
+    setLoading(true);
+    const token = localStorage.getItem('authToken');
+
+    const response = await fetch('http://localhost:8000/integrations/gmail/status', {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    const data = await response.json();
+    setGmailStatus(data);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    checkGmailStatus();
+  }, []);
+
+  if (loading) return <div>Verificando...</div>;
+
+  return (
+    <div>
+      <h3>Estado de Gmail</h3>
+      {gmailStatus?.connected ? (
+        <div>
+          <p>✅ Conectado</p>
+          <p>Email: {gmailStatus.metadata?.email}</p>
+        </div>
+      ) : (
+        <div>
+          <p>❌ No conectado</p>
+          <button onClick={() => {/* iniciar conexión */}}>
+            Conectar Gmail
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+**Verificar múltiples servicios:**
+
+```jsx
+async function checkAllIntegrations() {
+  const token = localStorage.getItem('authToken');
+  const services = ['gmail', 'outlook', 'whatsapp', 'telegram'];
+
+  const statuses = await Promise.all(
+    services.map(async (service) => {
+      const response = await fetch(
+        `http://localhost:8000/integrations/${service}/status`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      );
+      const data = await response.json();
+      return { service, ...data };
+    })
+  );
+
+  return statuses;
+  // [
+  //   { service: 'gmail', connected: true, metadata: {...} },
+  //   { service: 'outlook', connected: false, metadata: null },
+  //   { service: 'whatsapp', connected: true, metadata: {...} },
+  //   { service: 'telegram', connected: false, metadata: null }
+  // ]
 }
 ```
 

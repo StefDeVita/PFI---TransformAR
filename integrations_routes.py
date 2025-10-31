@@ -97,6 +97,13 @@ class IntegrationListResponse(BaseModel):
     integrations: Dict[str, Dict[str, Any]]
 
 
+class IntegrationStatusResponse(BaseModel):
+    """Estado de una integración específica"""
+    connected: bool
+    service: str
+    metadata: Optional[Dict[str, Any]] = None
+
+
 # ==================== Listar Integraciones ====================
 
 @router.get("/", response_model=IntegrationListResponse)
@@ -243,6 +250,29 @@ async def disconnect_gmail(user_id: str = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail="Error desconectando Gmail")
 
 
+@router.get("/gmail/status", response_model=IntegrationStatusResponse)
+async def gmail_status(user_id: str = Depends(get_current_user)):
+    """
+    Verifica si Gmail está conectado para el usuario actual
+
+    Retorna el estado de conexión y metadata si está conectado
+    """
+    credential = await ExternalCredentialsManager.get_credential(user_id, "gmail")
+
+    if credential:
+        return IntegrationStatusResponse(
+            connected=True,
+            service="gmail",
+            metadata=credential.get("metadata", {})
+        )
+    else:
+        return IntegrationStatusResponse(
+            connected=False,
+            service="gmail",
+            metadata=None
+        )
+
+
 # ==================== OUTLOOK ====================
 
 outlook_oauth_states = {}  # {state: user_id}
@@ -383,6 +413,29 @@ async def disconnect_outlook(user_id: str = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail="Error desconectando Outlook")
 
 
+@router.get("/outlook/status", response_model=IntegrationStatusResponse)
+async def outlook_status(user_id: str = Depends(get_current_user)):
+    """
+    Verifica si Outlook está conectado para el usuario actual
+
+    Retorna el estado de conexión y metadata si está conectado
+    """
+    credential = await ExternalCredentialsManager.get_credential(user_id, "outlook")
+
+    if credential:
+        return IntegrationStatusResponse(
+            connected=True,
+            service="outlook",
+            metadata=credential.get("metadata", {})
+        )
+    else:
+        return IntegrationStatusResponse(
+            connected=False,
+            service="outlook",
+            metadata=None
+        )
+
+
 # ==================== WHATSAPP ====================
 
 @router.post("/whatsapp/connect", response_model=IntegrationResponse)
@@ -454,6 +507,29 @@ async def disconnect_whatsapp(user_id: str = Depends(get_current_user)):
         )
     else:
         raise HTTPException(status_code=500, detail="Error desconectando WhatsApp")
+
+
+@router.get("/whatsapp/status", response_model=IntegrationStatusResponse)
+async def whatsapp_status(user_id: str = Depends(get_current_user)):
+    """
+    Verifica si WhatsApp está conectado para el usuario actual
+
+    Retorna el estado de conexión y metadata si está conectado
+    """
+    credential = await ExternalCredentialsManager.get_credential(user_id, "whatsapp")
+
+    if credential:
+        return IntegrationStatusResponse(
+            connected=True,
+            service="whatsapp",
+            metadata=credential.get("metadata", {})
+        )
+    else:
+        return IntegrationStatusResponse(
+            connected=False,
+            service="whatsapp",
+            metadata=None
+        )
 
 
 # ==================== TELEGRAM ====================
@@ -536,3 +612,26 @@ async def disconnect_telegram(user_id: str = Depends(get_current_user)):
         )
     else:
         raise HTTPException(status_code=500, detail="Error desconectando Telegram")
+
+
+@router.get("/telegram/status", response_model=IntegrationStatusResponse)
+async def telegram_status(user_id: str = Depends(get_current_user)):
+    """
+    Verifica si Telegram está conectado para el usuario actual
+
+    Retorna el estado de conexión y metadata si está conectado
+    """
+    credential = await ExternalCredentialsManager.get_credential(user_id, "telegram")
+
+    if credential:
+        return IntegrationStatusResponse(
+            connected=True,
+            service="telegram",
+            metadata=credential.get("metadata", {})
+        )
+    else:
+        return IntegrationStatusResponse(
+            connected=False,
+            service="telegram",
+            metadata=None
+        )

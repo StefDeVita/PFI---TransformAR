@@ -120,6 +120,22 @@ def verify_token(token: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def decode_jwt_token(token: str) -> Optional[str]:
+    """
+    Decode JWT token and extract user ID
+
+    Args:
+        token: JWT token string
+
+    Returns:
+        User ID or None if invalid
+    """
+    payload = verify_token(token)
+    if payload:
+        return payload.get("sub")  # "sub" contiene el user ID
+    return None
+
+
 async def authenticate_user(email: str, password: str) -> Optional[Dict[str, Any]]:
     """
     Authenticate a user with email and password

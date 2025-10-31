@@ -19,6 +19,7 @@ from input.outlook_reader import authenticate_outlook, get_token, list_messages_
 from input.whatsapp_reader import authenticate_whatsapp, list_messages_whatsapp, get_message_content as whatsapp_get
 from input.telegram_reader import authenticate_telegram, list_messages_telegram, get_message_content as telegram_get
 from auth import authenticate_user, create_access_token, create_password_reset_token, send_password_reset_email
+from integrations_routes import router as integrations_router
 
 UPLOAD_DIR = pathlib.Path("uploads")
 TEMPLATES_DIR = pathlib.Path("templates")
@@ -41,6 +42,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Incluir router de integraciones
+app.include_router(integrations_router)
 
 
 # --------- Grid Template Model (alineado al front) ---------

@@ -103,7 +103,7 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
 
 def verify_token(token: str) -> Optional[Dict[str, Any]]:
     """
-    Verify and decode a JWT token
+    Verify and decode a JWT toke
 
     Args:
         token: JWT token string
@@ -116,7 +116,7 @@ def verify_token(token: str) -> Optional[Dict[str, Any]]:
         return payload
     except jwt.ExpiredSignatureError:
         return None
-    except jwt.JWTError:
+    except jwt.PyJWTError:
         return None
 
 

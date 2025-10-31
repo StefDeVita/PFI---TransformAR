@@ -24,7 +24,7 @@ from google_auth_oauthlib.flow import Flow
 from msal import ConfidentialClientApplication
 import requests
 
-router = APIRouter(prefix="/integrations", tags=["integrations"])
+router = APIRouter(prefix="/integration", tags=["integrations"])
 
 
 # ==================== Dependency ====================

@@ -1,6 +1,6 @@
 # api.py (grid-templates aligned)
 from __future__ import annotations
-from fastapi import FastAPI, UploadFile, File, HTTPException, Query, Form
+from fastapi import FastAPI, UploadFile, File, HTTPException, Query, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from pydantic.functional_validators import field_validator
@@ -16,6 +16,8 @@ from nlp.apply_plan import execute_plan
 from input.gmail_reader import authenticate_gmail, list_messages as gmail_list, get_message_content as gmail_get
 from input.outlook_reader import authenticate_outlook, get_token, list_messages_outlook, get_message_body, \
     get_attachments
+from input.whatsapp_reader import authenticate_whatsapp, list_messages_whatsapp, get_message_content as whatsapp_get
+from input.telegram_reader import authenticate_telegram, list_messages_telegram, get_message_content as telegram_get
 from auth import authenticate_user, create_access_token, create_password_reset_token, send_password_reset_email
 
 UPLOAD_DIR = pathlib.Path("uploads")
@@ -103,7 +105,19 @@ class ManualDocSelection(BaseModel):
     file_id: str
 
 
-Method = Literal["document", "gmail", "outlook", "text"]
+class WhatsAppSelection(BaseModel):
+    message_data: Dict[str, Any]  # Datos completos del mensaje (del webhook)
+    use_text: bool = False
+    attachment_index: Optional[int] = None
+
+
+class TelegramSelection(BaseModel):
+    message_data: Dict[str, Any]  # Datos completos del mensaje (de list_messages o webhook)
+    use_text: bool = False
+    attachment_index: Optional[int] = None
+
+
+Method = Literal["document", "gmail", "outlook", "text", "whatsapp", "telegram"]
 
 
 class ProcessRequest(BaseModel):
@@ -112,6 +126,8 @@ class ProcessRequest(BaseModel):
     manual: Optional[ManualDocSelection] = None
     gmail: Optional[GmailSelection] = None
     outlook: Optional[OutlookSelection] = None
+    whatsapp: Optional[WhatsAppSelection] = None
+    telegram: Optional[TelegramSelection] = None
     text: Optional[str] = None
 
 
@@ -347,6 +363,160 @@ def outlook_message_detail(msg_id: str):
     return {"text": text or "", "attachments": atts or []}
 
 
+# WhatsApp
+@app.get("/input/whatsapp/messages")
+def whatsapp_messages(limit: int = Query(10, ge=1, le=50)):
+    """
+    Lista mensajes de WhatsApp.
+
+    NOTA: WhatsApp no provee un endpoint para listar mensajes históricos.
+    Los mensajes deben ser capturados por webhook y almacenados en una DB.
+    Esta función devuelve una lista vacía como placeholder.
+    """
+    try:
+        client = authenticate_whatsapp()
+        messages = list_messages_whatsapp(client, limit=limit)
+        return {"messages": messages}
+    except ValueError as e:
+        raise HTTPException(500, f"Error de configuración: {str(e)}")
+    except Exception as e:
+        raise HTTPException(500, f"Error obteniendo mensajes de WhatsApp: {str(e)}")
+
+
+@app.post("/input/whatsapp/content")
+def whatsapp_content(message_data: Dict[str, Any]):
+    """
+    Obtiene el contenido completo de un mensaje de WhatsApp.
+
+    El message_data debe contener la estructura del mensaje del webhook.
+    """
+    try:
+        client = authenticate_whatsapp()
+        content = whatsapp_get(client, message_data)
+        return {"text": content.get("text", ""), "attachments": content.get("attachments", [])}
+    except ValueError as e:
+        raise HTTPException(500, f"Error de configuración: {str(e)}")
+    except Exception as e:
+        raise HTTPException(500, f"Error obteniendo contenido: {str(e)}")
+
+
+@app.post("/webhook/whatsapp")
+async def whatsapp_webhook(request: Request):
+    """
+    Webhook para recibir mensajes de WhatsApp en tiempo real.
+
+    Este endpoint debe ser configurado en Meta for Developers.
+    Recibe notificaciones cuando llegan nuevos mensajes.
+    """
+    try:
+        data = await request.json()
+        client = authenticate_whatsapp()
+
+        # Procesar entrada de webhook
+        for entry in data.get("entry", []):
+            for change in entry.get("changes", []):
+                value = change.get("value", {})
+
+                # Procesar mensajes
+                for message in value.get("messages", []):
+                    msg_id = message.get("id")
+                    from_number = message.get("from")
+
+                    # Aquí deberías guardar el mensaje en una base de datos
+                    # para luego poder listarlo con list_messages_whatsapp
+                    print(f"[WhatsApp Webhook] Mensaje recibido de {from_number}: {msg_id}")
+
+                    # Opcional: Enviar confirmación automática
+                    # client.send_text_message(from_number, "Mensaje recibido ✓")
+
+        return {"status": "ok"}
+    except Exception as e:
+        print(f"[WhatsApp Webhook] Error: {e}")
+        raise HTTPException(500, str(e))
+
+
+@app.get("/webhook/whatsapp")
+async def whatsapp_webhook_verify(
+    hub_mode: str = Query(alias="hub.mode"),
+    hub_verify_token: str = Query(alias="hub.verify_token"),
+    hub_challenge: str = Query(alias="hub.challenge")
+):
+    """
+    Verificación inicial del webhook de WhatsApp.
+
+    Meta llama a este endpoint para verificar que controlas el servidor.
+    """
+    expected_token = os.getenv("WHATSAPP_WEBHOOK_TOKEN", "default_webhook_token")
+
+    if hub_mode == "subscribe" and hub_verify_token == expected_token:
+        return int(hub_challenge)
+    else:
+        raise HTTPException(403, "Token de verificación inválido")
+
+
+# Telegram
+@app.get("/input/telegram/messages")
+def telegram_messages(limit: int = Query(10, ge=1, le=50)):
+    """
+    Lista últimos mensajes de Telegram usando polling.
+
+    Para producción se recomienda usar webhook en lugar de polling.
+    """
+    try:
+        client = authenticate_telegram()
+        messages = list_messages_telegram(client, limit=limit)
+        return {"messages": messages}
+    except ValueError as e:
+        raise HTTPException(500, f"Error de configuración: {str(e)}")
+    except Exception as e:
+        raise HTTPException(500, f"Error obteniendo mensajes de Telegram: {str(e)}")
+
+
+@app.post("/input/telegram/content")
+def telegram_content(message_data: Dict[str, Any]):
+    """
+    Obtiene el contenido completo de un mensaje de Telegram.
+
+    El message_data debe contener la estructura completa del mensaje.
+    """
+    try:
+        client = authenticate_telegram()
+        content = telegram_get(client, message_data)
+        return {"text": content.get("text", ""), "attachments": content.get("attachments", [])}
+    except ValueError as e:
+        raise HTTPException(500, f"Error de configuración: {str(e)}")
+    except Exception as e:
+        raise HTTPException(500, f"Error obteniendo contenido: {str(e)}")
+
+
+@app.post("/webhook/telegram")
+async def telegram_webhook(request: Request):
+    """
+    Webhook para recibir mensajes de Telegram en tiempo real.
+
+    Este endpoint debe ser configurado usando setWebhook de la API de Telegram.
+    """
+    try:
+        data = await request.json()
+        client = authenticate_telegram()
+
+        if "message" in data:
+            message = data["message"]
+            chat_id = message["chat"]["id"]
+            msg_id = message["message_id"]
+
+            # Aquí deberías guardar el mensaje en una base de datos
+            print(f"[Telegram Webhook] Mensaje recibido en chat {chat_id}: {msg_id}")
+
+            # Opcional: Enviar confirmación automática
+            # client.send_message(chat_id, "Mensaje recibido ✓")
+
+        return {"ok": True}
+    except Exception as e:
+        print(f"[Telegram Webhook] Error: {e}")
+        raise HTTPException(500, str(e))
+
+
 # Plantillas (grid)
 @app.get("/templates", response_model=List[TemplateMeta])
 def list_templates():
@@ -416,6 +586,34 @@ def process(req: ProcessRequest):
                 return {"result": result, "compiled": compiled}
             else:
                 text = get_message_body(token, req.outlook.message_id)
+
+    elif req.method == "whatsapp":
+        if not req.whatsapp: raise HTTPException(400, "Falta 'whatsapp'")
+        client = authenticate_whatsapp()
+        content = whatsapp_get(client, req.whatsapp.message_data)
+        if req.whatsapp.use_text or not content.get("attachments"):
+            text = content.get("text", "")
+            if not text: raise HTTPException(400, "El mensaje no tiene texto utilizable.")
+        else:
+            atts = content.get("attachments") or []
+            idx = req.whatsapp.attachment_index or 0
+            if idx < 0 or idx >= len(atts): raise HTTPException(400, "attachment_index inválido")
+            result = _pipeline_from_file(pathlib.Path(atts[idx]["path"]), extract_instr, transform_instr)
+            return {"result": result, "compiled": compiled}
+
+    elif req.method == "telegram":
+        if not req.telegram: raise HTTPException(400, "Falta 'telegram'")
+        client = authenticate_telegram()
+        content = telegram_get(client, req.telegram.message_data)
+        if req.telegram.use_text or not content.get("attachments"):
+            text = content.get("text", "")
+            if not text: raise HTTPException(400, "El mensaje no tiene texto utilizable.")
+        else:
+            atts = content.get("attachments") or []
+            idx = req.telegram.attachment_index or 0
+            if idx < 0 or idx >= len(atts): raise HTTPException(400, "attachment_index inválido")
+            result = _pipeline_from_file(pathlib.Path(atts[idx]["path"]), extract_instr, transform_instr)
+            return {"result": result, "compiled": compiled}
 
     else:
         raise HTTPException(400, "Método inválido")

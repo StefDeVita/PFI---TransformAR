@@ -133,6 +133,33 @@ class WhatsAppClient:
 
 # =============== FUNCIONES ESTÁNDAR (Interfaz compatible con Gmail/Outlook) ===============
 
+def download_media_from_credentials(
+    credentials_dict: Dict[str, Any],
+    media_id: str
+) -> Optional[bytes]:
+    """
+    Descarga un archivo multimedia de WhatsApp usando credenciales desde Firestore.
+
+    Args:
+        credentials_dict: Credenciales del usuario desde Firestore
+                         {
+                             "phone_number_id": "...",
+                             "access_token": "...",
+                             "business_account_id": "..." (opcional)
+                         }
+        media_id: ID del archivo multimedia en WhatsApp
+
+    Returns:
+        Contenido binario del archivo, o None si falla la descarga
+    """
+    try:
+        client = WhatsAppClient(credentials_dict)
+        return client.download_media(media_id)
+    except Exception as e:
+        print(f"[WhatsApp] Error descargando media {media_id}: {e}")
+        return None
+
+
 def authenticate_whatsapp(credentials_dict: Optional[Dict[str, Any]] = None) -> WhatsAppClient:
     """
     Inicializa cliente WhatsApp

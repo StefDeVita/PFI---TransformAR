@@ -196,6 +196,37 @@ class TelegramClient:
 
 # =============== FUNCIONES ESTÁNDAR (Interfaz compatible con Gmail/Outlook) ===============
 
+def download_file_from_credentials(
+    credentials_dict: Dict[str, Any],
+    file_id: str
+) -> Optional[bytes]:
+    """
+    Descarga un archivo de Telegram usando credenciales desde Firestore.
+
+    Args:
+        credentials_dict: Credenciales del usuario desde Firestore
+                         {
+                             "bot_token": "..."
+                         }
+        file_id: ID del archivo en Telegram
+
+    Returns:
+        Contenido binario del archivo, o None si falla la descarga
+    """
+    try:
+        client = TelegramClient(credentials_dict)
+        file_info = client.get_file_info(file_id)
+
+        if not file_info or "file_path" not in file_info:
+            print(f"[Telegram] No se pudo obtener info del archivo {file_id}")
+            return None
+
+        return client.download_file(file_info["file_path"])
+    except Exception as e:
+        print(f"[Telegram] Error descargando archivo {file_id}: {e}")
+        return None
+
+
 def authenticate_telegram(credentials_dict: Optional[Dict[str, Any]] = None) -> TelegramClient:
     """
     Inicializa cliente Telegram

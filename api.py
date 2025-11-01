@@ -1,12 +1,14 @@
 # api.py (grid-templates aligned)
 from __future__ import annotations
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query, Form, Request, Header, Depends
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from pydantic.functional_validators import field_validator
 from typing import List, Optional, Literal, Dict, Any
 import pathlib, os, json, re, unicodedata
 import tempfile
+import io
 
 # --- Importar pipeline y fuentes existentes ---
 from input.docling_reader import extract_text_with_layout
@@ -24,8 +26,14 @@ from input.outlook_reader import (
     get_message_body_from_credentials as outlook_get_body_from_creds,
     get_attachments_from_credentials as outlook_get_attachments_from_creds
 )
-from input.whatsapp_reader import authenticate_whatsapp, list_messages_whatsapp, get_message_content as whatsapp_get
-from input.telegram_reader import authenticate_telegram, list_messages_telegram, get_message_content as telegram_get
+from input.whatsapp_reader import (
+    authenticate_whatsapp, list_messages_whatsapp, get_message_content as whatsapp_get,
+    download_media_from_credentials as whatsapp_download_media
+)
+from input.telegram_reader import (
+    authenticate_telegram, list_messages_telegram, get_message_content as telegram_get,
+    download_file_from_credentials as telegram_download_file
+)
 from auth import authenticate_user, create_access_token, create_password_reset_token, send_password_reset_email, decode_jwt_token
 from integrations_routes import router as integrations_router
 from external_credentials import ExternalCredentialsManager
@@ -505,6 +513,67 @@ async def whatsapp_content(message_data: Dict[str, Any], user_id: str = Depends(
         raise HTTPException(500, f"Error obteniendo contenido: {str(e)}")
 
 
+@app.get("/input/whatsapp/media/{media_id}")
+async def whatsapp_download_media_endpoint(media_id: str, user_id: str = Depends(get_current_user)):
+    """
+    Descarga un archivo multimedia de WhatsApp.
+
+    Args:
+        media_id: ID del archivo multimedia en WhatsApp
+        user_id: ID del usuario autenticado (automático)
+
+    Returns:
+        Archivo multimedia como stream de bytes
+
+    Uso desde el frontend:
+        GET /input/whatsapp/media/{media_id}
+        Headers: Authorization: Bearer {jwt_token}
+
+    El frontend puede usarlo en un <img>, <video>, o descargar directamente.
+    """
+    try:
+        cred_manager = ExternalCredentialsManager()
+        whatsapp_creds = await cred_manager.get_credential(user_id, "whatsapp")
+
+        if not whatsapp_creds:
+            raise HTTPException(
+                status_code=400,
+                detail="No has conectado tu cuenta de WhatsApp. Usa POST /integration/whatsapp/connect primero."
+            )
+
+        # Descargar archivo usando credenciales
+        file_data = whatsapp_download_media(whatsapp_creds, media_id)
+
+        if not file_data:
+            raise HTTPException(404, f"No se pudo descargar el archivo multimedia con ID: {media_id}")
+
+        # Determinar tipo de contenido (por defecto application/octet-stream)
+        # WhatsApp no devuelve el tipo MIME directamente, así que usamos genérico
+        media_type = "application/octet-stream"
+
+        # Crear stream de bytes
+        file_stream = io.BytesIO(file_data)
+
+        return StreamingResponse(
+            file_stream,
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f"attachment; filename=whatsapp_{media_id}",
+                "Cache-Control": "private, max-age=3600"  # Cachear por 1 hora
+            }
+        )
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(500, f"Error de configuración: {str(e)}")
+    except Exception as e:
+        print(f"[WhatsApp Media] Error descargando media {media_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(500, f"Error descargando archivo: {str(e)}")
+
+
 @app.post("/webhook/whatsapp")
 async def whatsapp_webhook(request: Request):
     """
@@ -636,6 +705,66 @@ async def telegram_content(message_data: Dict[str, Any], user_id: str = Depends(
         raise HTTPException(500, f"Error de configuración: {str(e)}")
     except Exception as e:
         raise HTTPException(500, f"Error obteniendo contenido: {str(e)}")
+
+
+@app.get("/input/telegram/file/{file_id}")
+async def telegram_download_file_endpoint(file_id: str, user_id: str = Depends(get_current_user)):
+    """
+    Descarga un archivo de Telegram.
+
+    Args:
+        file_id: ID del archivo en Telegram
+        user_id: ID del usuario autenticado (automático)
+
+    Returns:
+        Archivo como stream de bytes
+
+    Uso desde el frontend:
+        GET /input/telegram/file/{file_id}
+        Headers: Authorization: Bearer {jwt_token}
+
+    El frontend puede usarlo en un <img>, <video>, <a download>, etc.
+    """
+    try:
+        cred_manager = ExternalCredentialsManager()
+        telegram_creds = await cred_manager.get_credential(user_id, "telegram")
+
+        if not telegram_creds:
+            raise HTTPException(
+                status_code=400,
+                detail="No has conectado tu cuenta de Telegram. Usa POST /integration/telegram/connect primero."
+            )
+
+        # Descargar archivo usando credenciales
+        file_data = telegram_download_file(telegram_creds, file_id)
+
+        if not file_data:
+            raise HTTPException(404, f"No se pudo descargar el archivo con ID: {file_id}")
+
+        # Tipo de contenido genérico
+        media_type = "application/octet-stream"
+
+        # Crear stream de bytes
+        file_stream = io.BytesIO(file_data)
+
+        return StreamingResponse(
+            file_stream,
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f"attachment; filename=telegram_{file_id}",
+                "Cache-Control": "private, max-age=3600"  # Cachear por 1 hora
+            }
+        )
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(500, f"Error de configuración: {str(e)}")
+    except Exception as e:
+        print(f"[Telegram File] Error descargando archivo {file_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(500, f"Error descargando archivo: {str(e)}")
 
 
 @app.post("/webhook/telegram")

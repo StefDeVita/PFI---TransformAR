@@ -29,6 +29,7 @@ from input.telegram_reader import authenticate_telegram, list_messages_telegram,
 from auth import authenticate_user, create_access_token, create_password_reset_token, send_password_reset_email, decode_jwt_token
 from integrations_routes import router as integrations_router
 from external_credentials import ExternalCredentialsManager
+from whatsapp_messages import save_whatsapp_message, get_whatsapp_messages, find_user_by_whatsapp_number
 
 UPLOAD_DIR = pathlib.Path("uploads")
 TEMPLATES_DIR = pathlib.Path("templates")
@@ -450,11 +451,10 @@ async def outlook_message_detail(msg_id: str, user_id: str = Depends(get_current
 @app.get("/input/whatsapp/messages")
 async def whatsapp_messages(limit: int = Query(10, ge=1, le=50), user_id: str = Depends(get_current_user)):
     """
-    Lista mensajes de WhatsApp usando las credenciales del usuario autenticado.
+    Lista mensajes de WhatsApp del usuario autenticado.
 
-    NOTA: WhatsApp no provee un endpoint para listar mensajes históricos.
-    Los mensajes deben ser capturados por webhook y almacenados en una DB.
-    Esta función devuelve una lista vacía como placeholder.
+    Los mensajes son capturados automáticamente por el webhook y guardados en Firestore.
+    Se mantienen los últimos 10 mensajes por usuario.
     """
     try:
         cred_manager = ExternalCredentialsManager()
@@ -466,8 +466,8 @@ async def whatsapp_messages(limit: int = Query(10, ge=1, le=50), user_id: str = 
                 detail="No has conectado tu cuenta de WhatsApp. Usa POST /integration/whatsapp/connect primero."
             )
 
-        client = authenticate_whatsapp(whatsapp_creds)
-        messages = list_messages_whatsapp(client, limit=limit)
+        # Obtener mensajes desde Firestore
+        messages = await get_whatsapp_messages(user_id, limit=limit)
         return {"messages": messages}
     except HTTPException:
         raise
@@ -511,11 +511,10 @@ async def whatsapp_webhook(request: Request):
     Webhook para recibir mensajes de WhatsApp en tiempo real.
 
     Este endpoint debe ser configurado en Meta for Developers.
-    Recibe notificaciones cuando llegan nuevos mensajes.
+    Recibe notificaciones cuando llegan nuevos mensajes y los guarda en Firestore.
     """
     try:
         data = await request.json()
-        client = authenticate_whatsapp()
 
         # Procesar entrada de webhook
         for entry in data.get("entry", []):
@@ -527,12 +526,17 @@ async def whatsapp_webhook(request: Request):
                     msg_id = message.get("id")
                     from_number = message.get("from")
 
-                    # Aquí deberías guardar el mensaje en una base de datos
-                    # para luego poder listarlo con list_messages_whatsapp
                     print(f"[WhatsApp Webhook] Mensaje recibido de {from_number}: {msg_id}")
 
-                    # Opcional: Enviar confirmación automática
-                    # client.send_text_message(from_number, "Mensaje recibido ✓")
+                    # Buscar el usuario que tiene este número de WhatsApp conectado
+                    user_id = await find_user_by_whatsapp_number(from_number)
+
+                    if user_id:
+                        # Guardar mensaje en Firestore (mantiene últimos 10)
+                        await save_whatsapp_message(user_id, message)
+                        print(f"[WhatsApp Webhook] Mensaje guardado para usuario {user_id}")
+                    else:
+                        print(f"[WhatsApp Webhook] No se encontró usuario para el número {from_number}")
 
         return {"status": "ok"}
     except Exception as e:

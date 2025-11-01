@@ -349,11 +349,53 @@ async def process_document_with_template(
 ):
     # 1) leer el archivo en un tmp file
     content = await file.read()
-    with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{file.filename}") as tmp:
+
+    # Validar que el archivo no esté vacío
+    if not content:
+        raise HTTPException(400, "El archivo está vacío")
+
+    print(f"[Process Document] Archivo recibido: {file.filename}, tamaño: {len(content)} bytes")
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{file.filename}", mode='wb') as tmp:
         tmp.write(content)
         tmp.flush()  # Asegurar que los datos se escriban al buffer
         os.fsync(tmp.fileno())  # Forzar escritura al disco
         tmp_path = tmp.name
+
+    # Verificar que el archivo existe y tiene contenido
+    if not os.path.exists(tmp_path):
+        raise HTTPException(500, f"No se pudo crear el archivo temporal: {tmp_path}")
+
+    file_size = os.path.getsize(tmp_path)
+    print(f"[Process Document] Archivo temporal creado: {tmp_path}, tamaño: {file_size} bytes")
+
+    if file_size == 0:
+        try:
+            pathlib.Path(tmp_path).unlink(missing_ok=True)
+        except:
+            pass
+        raise HTTPException(500, "El archivo temporal está vacío después de escribirlo")
+
+    # Validar que sea un PDF válido (verificar header)
+    try:
+        with open(tmp_path, 'rb') as f:
+            header = f.read(5)
+            if not header.startswith(b'%PDF-'):
+                try:
+                    pathlib.Path(tmp_path).unlink(missing_ok=True)
+                except:
+                    pass
+                raise HTTPException(400, f"El archivo no es un PDF válido. Header encontrado: {header[:20]}")
+            print(f"[Process Document] PDF validado correctamente, header: {header}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Process Document] Error validando PDF: {e}")
+        try:
+            pathlib.Path(tmp_path).unlink(missing_ok=True)
+        except:
+            pass
+        raise HTTPException(500, f"Error validando archivo: {str(e)}")
 
     try:
         # 2) cargar plantilla y compilar instrucciones
@@ -361,19 +403,28 @@ async def process_document_with_template(
         compiled = _compile_grid_to_instructions(gtpl)
         extract_instr = compiled["extract_instr"]
         transform_instr = compiled["transform_instr"]
+
         # 3) ejecutar pipeline sobre el tmp file
+        print(f"[Process Document] Procesando archivo con Docling...")
         result = _pipeline_from_file(pathlib.Path(tmp_path), extract_instr, transform_instr)
+
         return {
             "template_id": template_id,
             "compiled": compiled,
             "result": result
         }
+    except Exception as e:
+        print(f"[Process Document] Error procesando documento: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
     finally:
         # 4) borrar archivo temporal
         try:
             pathlib.Path(tmp_path).unlink(missing_ok=True)
-        except Exception:
-            pass
+            print(f"[Process Document] Archivo temporal eliminado: {tmp_path}")
+        except Exception as e:
+            print(f"[Process Document] No se pudo eliminar archivo temporal: {e}")
 
 
 @app.post("/input/document")

@@ -10,13 +10,12 @@ from firebase_admin import firestore
 from pydantic import BaseModel
 import os
 
-# Inicializar Firestore (si no está ya inicializado)
-try:
-    db = firestore.client()
-except ValueError:
-    # Ya fue inicializado en auth.py
+
+# No inicializar al importar, usar lazy initialization
+def _get_db():
+    """Obtiene la instancia de Firestore con lazy initialization"""
     from auth import get_db
-    db = get_db()
+    return get_db()
 
 
 ServiceType = Literal["gmail", "outlook", "whatsapp", "telegram"]
@@ -38,7 +37,7 @@ class ExternalCredentialsManager:
     @staticmethod
     def _get_credential_ref(user_id: str, service: ServiceType):
         """Obtiene referencia al documento de credencial"""
-        return db.collection("users").document(user_id).collection(
+        return _get_db().collection("users").document(user_id).collection(
             ExternalCredentialsManager.COLLECTION
         ).document(service)
 
@@ -144,7 +143,7 @@ class ExternalCredentialsManager:
             Diccionario con {service: credential_data}
         """
         try:
-            collection_ref = db.collection("users").document(user_id).collection(
+            collection_ref = _get_db().collection("users").document(user_id).collection(
                 ExternalCredentialsManager.COLLECTION
             )
 

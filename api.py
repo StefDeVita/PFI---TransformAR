@@ -421,7 +421,7 @@ async def outlook_messages(limit: int = Query(10, ge=1, le=50), user_id: str = D
             detail="No has conectado tu cuenta de Outlook. Usa POST /integration/outlook/connect primero."
         )
 
-    mails = outlook_list_from_creds(outlook_creds, top=limit)
+    mails = outlook_list_from_creds(outlook_creds, top=limit, user_id=user_id)
     out = []
     for m in mails:
         sender = (m.get("sender") or {}).get("emailAddress", {}).get("address")
@@ -442,8 +442,8 @@ async def outlook_message_detail(msg_id: str, user_id: str = Depends(get_current
             detail="No has conectado tu cuenta de Outlook. Usa POST /integration/outlook/connect primero."
         )
 
-    text = outlook_get_body_from_creds(outlook_creds, msg_id)
-    atts = outlook_get_attachments_from_creds(outlook_creds, msg_id)
+    text = outlook_get_body_from_creds(outlook_creds, msg_id, user_id=user_id)
+    atts = outlook_get_attachments_from_creds(outlook_creds, msg_id, user_id=user_id)
     return {"text": text or "", "attachments": atts or []}
 
 
@@ -512,6 +512,9 @@ async def whatsapp_webhook(request: Request):
 
     Este endpoint debe ser configurado en Meta for Developers.
     Recibe notificaciones cuando llegan nuevos mensajes y los guarda en Firestore.
+
+    El webhook identifica al usuario receptor a través del número de WhatsApp Business
+    (display_phone_number) que aparece en el metadata del webhook, NO por el remitente.
     """
     try:
         data = await request.json()
@@ -521,26 +524,41 @@ async def whatsapp_webhook(request: Request):
             for change in entry.get("changes", []):
                 value = change.get("value", {})
 
-                # Procesar mensajes
+                # Extraer metadata para identificar el receptor (número de WhatsApp Business)
+                metadata = value.get("metadata", {})
+                receiver_number = metadata.get("display_phone_number", "")
+                phone_number_id = metadata.get("phone_number_id", "")
+
+                if not receiver_number:
+                    print(f"[WhatsApp Webhook] Warning: No se encontró display_phone_number en metadata")
+                    continue
+
+                # Buscar el usuario dueño de este número de WhatsApp Business
+                user_id = await find_user_by_whatsapp_number(receiver_number)
+
+                if not user_id:
+                    print(f"[WhatsApp Webhook] No se encontró usuario para número receptor: {receiver_number}")
+                    continue
+
+                # Procesar mensajes para este usuario
                 for message in value.get("messages", []):
                     msg_id = message.get("id")
                     from_number = message.get("from")
 
-                    print(f"[WhatsApp Webhook] Mensaje recibido de {from_number}: {msg_id}")
+                    print(f"[WhatsApp Webhook] Mensaje recibido:")
+                    print(f"  - De: {from_number}")
+                    print(f"  - Para: {receiver_number} (usuario: {user_id})")
+                    print(f"  - ID: {msg_id}")
 
-                    # Buscar el usuario que tiene este número de WhatsApp conectado
-                    user_id = await find_user_by_whatsapp_number(from_number)
-
-                    if user_id:
-                        # Guardar mensaje en Firestore (mantiene últimos 10)
-                        await save_whatsapp_message(user_id, message)
-                        print(f"[WhatsApp Webhook] Mensaje guardado para usuario {user_id}")
-                    else:
-                        print(f"[WhatsApp Webhook] No se encontró usuario para el número {from_number}")
+                    # Guardar mensaje en Firestore (mantiene últimos 10)
+                    await save_whatsapp_message(user_id, message)
+                    print(f"[WhatsApp Webhook] Mensaje guardado exitosamente")
 
         return {"status": "ok"}
     except Exception as e:
         print(f"[WhatsApp Webhook] Error: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(500, str(e))
 
 
@@ -726,17 +744,17 @@ async def process(req: ProcessRequest, user_id: str = Depends(get_current_user))
 
         # Usar funciones que aceptan credenciales desde Firestore
         if req.outlook.use_text:
-            text = outlook_get_body_from_creds(outlook_creds, req.outlook.message_id)
+            text = outlook_get_body_from_creds(outlook_creds, req.outlook.message_id, user_id=user_id)
             if not text: raise HTTPException(400, "No se pudo obtener texto del correo.")
         else:
-            files = outlook_get_attachments_from_creds(outlook_creds, req.outlook.message_id)
+            files = outlook_get_attachments_from_creds(outlook_creds, req.outlook.message_id, user_id=user_id)
             if files:
                 idx = req.outlook.attachment_index or 0
                 if idx < 0 or idx >= len(files): raise HTTPException(400, "attachment_index inválido")
                 result = _pipeline_from_file(pathlib.Path(files[idx]), extract_instr, transform_instr)
                 return {"result": result, "compiled": compiled}
             else:
-                text = outlook_get_body_from_creds(outlook_creds, req.outlook.message_id)
+                text = outlook_get_body_from_creds(outlook_creds, req.outlook.message_id, user_id=user_id)
 
     elif req.method == "whatsapp":
         if not req.whatsapp: raise HTTPException(400, "Falta 'whatsapp'")

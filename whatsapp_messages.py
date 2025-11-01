@@ -3,6 +3,7 @@ Gestión de mensajes de WhatsApp en Firestore
 Guarda hasta 10 mensajes por usuario
 """
 
+import re
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from firebase_admin import firestore
@@ -316,10 +317,14 @@ async def get_whatsapp_messages(
 
 async def find_user_by_whatsapp_number(phone_number: str) -> Optional[str]:
     """
-    Busca el user_id que tiene conectado un número de WhatsApp específico
+    Busca el user_id que tiene conectado un número de WhatsApp Business específico.
+
+    Este método busca el usuario que configuró el número de WhatsApp Business
+    (el número que RECIBE los mensajes), no el remitente.
 
     Args:
-        phone_number: Número de teléfono de WhatsApp
+        phone_number: Número de WhatsApp Business (puede incluir código de país).
+                     Ejemplos: "1234567890", "+1234567890", "521234567890"
 
     Returns:
         user_id si se encuentra, None en caso contrario
@@ -328,6 +333,9 @@ async def find_user_by_whatsapp_number(phone_number: str) -> Optional[str]:
         db = _get_db()
         if not db:
             return None
+
+        # Normalizar el número (remover espacios, guiones, signos +)
+        normalized_input = re.sub(r'[^\d]', '', phone_number)
 
         # Buscar en todas las credenciales de WhatsApp
         users_ref = db.collection("users")
@@ -344,12 +352,25 @@ async def find_user_by_whatsapp_number(phone_number: str) -> Optional[str]:
                 cred_data = whatsapp_cred.to_dict()
                 metadata = cred_data.get("metadata", {})
 
-                # Verificar si el número coincide
-                if metadata.get("phone_number") == phone_number:
+                # Obtener el número almacenado y normalizarlo
+                stored_number = metadata.get("phone_number", "")
+                normalized_stored = re.sub(r'[^\d]', '', stored_number)
+
+                # Comparar números normalizados
+                # También intentar comparar sin el código de país inicial
+                if normalized_stored == normalized_input:
                     return user_id
 
+                # Intentar match sin código de país (últimos 10 dígitos)
+                if len(normalized_stored) >= 10 and len(normalized_input) >= 10:
+                    if normalized_stored[-10:] == normalized_input[-10:]:
+                        return user_id
+
+        print(f"[WhatsApp Messages] No se encontró usuario con número: {phone_number}")
         return None
 
     except Exception as e:
         print(f"[WhatsApp Messages] Error buscando usuario por número: {e}")
+        import traceback
+        traceback.print_exc()
         return None

@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 import os
 import secrets
+import hashlib
+import base64
 from urllib.parse import urlencode
 
 from auth import decode_jwt_token
@@ -276,6 +278,25 @@ async def gmail_status(user_id: str = Depends(get_current_user)):
 # ==================== OUTLOOK ====================
 
 outlook_oauth_states = {}  # {state: user_id}
+outlook_code_verifiers = {}  # {state: code_verifier} para PKCE
+
+
+def generate_pkce_pair():
+    """
+    Genera un par code_verifier y code_challenge para PKCE
+
+    Returns:
+        tuple: (code_verifier, code_challenge)
+    """
+    # Generar code_verifier: string aleatorio de 43-128 caracteres
+    code_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode('utf-8').rstrip('=')
+
+    # Generar code_challenge: SHA256 hash del code_verifier
+    code_challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(code_verifier.encode('utf-8')).digest()
+    ).decode('utf-8').rstrip('=')
+
+    return code_verifier, code_challenge
 
 
 @router.post("/outlook/connect")
@@ -301,21 +322,28 @@ async def connect_outlook_start(
     state = secrets.token_urlsafe(32)
     outlook_oauth_states[state] = user_id
 
-    # Construir URL de autorización
+    # Generar PKCE pair
+    code_verifier, code_challenge = generate_pkce_pair()
+    outlook_code_verifiers[state] = code_verifier
+
+    # Construir URL de autorización con PKCE
     authority = "https://login.microsoftonline.com/common"
     scopes = ["https://graph.microsoft.com/Mail.Read", "https://graph.microsoft.com/User.Read"]
 
-    app = ConfidentialClientApplication(
-        client_id,
-        client_credential=client_secret,
-        authority=authority
-    )
+    # Construir URL manualmente con PKCE
+    auth_endpoint = f"{authority}/oauth2/v2.0/authorize"
+    params = {
+        "client_id": client_id,
+        "response_type": "code",
+        "redirect_uri": redirect_uri,
+        "scope": " ".join(scopes),
+        "state": state,
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+        "response_mode": "query"
+    }
 
-    auth_url = app.get_authorization_request_url(
-        scopes=scopes,
-        state=state,
-        redirect_uri=redirect_uri
-    )
+    auth_url = f"{auth_endpoint}?{urlencode(params)}"
 
     return {
         "authorization_url": auth_url,
@@ -338,30 +366,42 @@ async def connect_outlook_callback(
         raise HTTPException(status_code=400, detail="State inválido o expirado")
 
     user_id = outlook_oauth_states.pop(state)
+    code_verifier = outlook_code_verifiers.pop(state, None)
+
+    if not code_verifier:
+        raise HTTPException(status_code=400, detail="Code verifier no encontrado")
 
     client_id = os.getenv("OUTLOOK_CLIENT_ID")
     client_secret = os.getenv("OUTLOOK_CLIENT_SECRET")
     redirect_uri = os.getenv("OUTLOOK_REDIRECT_URI", "http://localhost:8000/integration/outlook/callback")
 
     try:
-        authority = "https://login.microsoftonline.com/common"
-        scopes = ["https://graph.microsoft.com/Mail.Read", "https://graph.microsoft.com/User.Read"]
+        # Intercambiar código por token usando PKCE
+        token_endpoint = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
 
-        app = ConfidentialClientApplication(
-            client_id,
-            client_credential=client_secret,
-            authority=authority
-        )
+        token_data = {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "code": code,
+            "redirect_uri": redirect_uri,
+            "grant_type": "authorization_code",
+            "code_verifier": code_verifier,
+            "scope": "https://graph.microsoft.com/Mail.Read https://graph.microsoft.com/User.Read"
+        }
 
-        # Intercambiar código por token
-        result = app.acquire_token_by_authorization_code(
-            code,
-            scopes=scopes,
-            redirect_uri=redirect_uri
-        )
+        token_response = requests.post(token_endpoint, data=token_data)
+
+        if token_response.status_code != 200:
+            error_data = token_response.json()
+            raise HTTPException(
+                status_code=400,
+                detail=f"Error obteniendo token: {error_data.get('error_description', 'Unknown error')}"
+            )
+
+        result = token_response.json()
 
         if "access_token" not in result:
-            raise HTTPException(status_code=400, detail=f"Error obteniendo token: {result.get('error_description')}")
+            raise HTTPException(status_code=400, detail="No se recibió access_token en la respuesta")
 
         access_token = result["access_token"]
         refresh_token = result.get("refresh_token")

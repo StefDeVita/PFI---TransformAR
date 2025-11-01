@@ -309,13 +309,12 @@ async def connect_outlook_start(
     Retorna la URL a la que el usuario debe ser redirigido
     """
     client_id = os.getenv("OUTLOOK_CLIENT_ID")
-    client_secret = os.getenv("OUTLOOK_CLIENT_SECRET")
     redirect_uri = os.getenv("OUTLOOK_REDIRECT_URI", "http://localhost:8000/integration/outlook/callback")
 
-    if not client_id or not client_secret:
+    if not client_id:
         raise HTTPException(
             status_code=500,
-            detail="Faltan credenciales de Outlook. Configura OUTLOOK_CLIENT_ID y OUTLOOK_CLIENT_SECRET"
+            detail="Falta OUTLOOK_CLIENT_ID. Configura esta variable de entorno."
         )
 
     # Generar state único
@@ -372,21 +371,20 @@ async def connect_outlook_callback(
         raise HTTPException(status_code=400, detail="Code verifier no encontrado")
 
     client_id = os.getenv("OUTLOOK_CLIENT_ID")
-    client_secret = os.getenv("OUTLOOK_CLIENT_SECRET")
     redirect_uri = os.getenv("OUTLOOK_REDIRECT_URI", "http://localhost:8000/integration/outlook/callback")
 
     try:
         # Intercambiar código por token usando PKCE
         token_endpoint = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
 
+        # Con PKCE, NO se envía client_secret (es para clientes públicos)
+        # El code_verifier reemplaza la necesidad del client_secret
         token_data = {
             "client_id": client_id,
-            "client_secret": client_secret,
             "code": code,
             "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
             "code_verifier": code_verifier,
-            "scope": "https://graph.microsoft.com/Mail.Read https://graph.microsoft.com/User.Read"
         }
 
         token_response = requests.post(token_endpoint, data=token_data)

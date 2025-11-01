@@ -604,7 +604,14 @@ async def whatsapp_download_media_endpoint(media_id: str, user_id: str = Depends
 
         if not file_data:
             print(f"[WhatsApp Media] Error: No se pudo descargar el archivo con media_id: {media_id}")
-            raise HTTPException(404, f"No se pudo descargar el archivo multimedia con ID: {media_id}")
+            raise HTTPException(
+                404,
+                "No se pudo descargar el archivo de WhatsApp. "
+                "Posibles causas: (1) El access token de WhatsApp ha expirado y necesita ser renovado, "
+                "(2) El archivo multimedia ha expirado (WhatsApp guarda archivos por 30 días), "
+                "(3) El media_id es inválido. "
+                "Por favor, verifica las credenciales de WhatsApp en la configuración."
+            )
 
         print(f"[WhatsApp Media] Archivo descargado exitosamente, tamaño: {len(file_data)} bytes")
 

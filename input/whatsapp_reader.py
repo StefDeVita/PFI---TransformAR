@@ -61,11 +61,27 @@ class WhatsAppClient:
         """Obtiene URL temporal de descarga de un archivo multimedia"""
         url = f"{self.BASE_URL}/{media_id}"
 
+        print(f"[WhatsApp] Obteniendo URL de media: {media_id}")
+        print(f"[WhatsApp] Access token (primeros 20 chars): {self.access_token[:20]}...")
+
         try:
             resp = requests.get(url, headers=self._headers(), timeout=10)
             resp.raise_for_status()
             data = resp.json()
-            return data.get("url")
+            media_url = data.get("url")
+            print(f"[WhatsApp] URL de media obtenida exitosamente")
+            return media_url
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 401:
+                print(f"[WhatsApp] ERROR 401: Access token inválido o expirado")
+                print(f"[WhatsApp] El access token de WhatsApp necesita ser renovado")
+                print(f"[WhatsApp] Respuesta de error: {e.response.text}")
+            elif e.response.status_code == 404:
+                print(f"[WhatsApp] ERROR 404: Media {media_id} no encontrado o expirado")
+                print(f"[WhatsApp] Los archivos multimedia en WhatsApp expiran después de 30 días")
+            else:
+                print(f"[WhatsApp] Error HTTP {e.response.status_code}: {e.response.text}")
+            return None
         except Exception as e:
             print(f"[WhatsApp] Error obteniendo URL de media {media_id}: {e}")
             return None

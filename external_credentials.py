@@ -99,7 +99,9 @@ class ExternalCredentialsManager:
             doc = ref.get()
 
             if doc.exists:
-                return doc.to_dict()
+                data = doc.to_dict()
+                # Devolver solo el campo 'credentials', no todo el documento
+                return data.get("credentials")
             return None
 
         except Exception as e:

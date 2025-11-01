@@ -358,6 +358,8 @@ def get_message_content(client: TelegramClient, message_data: Dict[str, Any]) ->
 
                     with open(save_path, "wb") as f:
                         f.write(file_data)
+                        f.flush()  # Asegurar escritura al buffer
+                        os.fsync(f.fileno())  # Forzar escritura al disco
 
                     out["attachments"].append({
                         "type": "document",
@@ -387,6 +389,8 @@ def get_message_content(client: TelegramClient, message_data: Dict[str, Any]) ->
 
                         with open(save_path, "wb") as f:
                             f.write(file_data)
+                            f.flush()  # Asegurar escritura al buffer
+                            os.fsync(f.fileno())  # Forzar escritura al disco
 
                         out["attachments"].append({
                             "type": "photo",
@@ -413,6 +417,8 @@ def get_message_content(client: TelegramClient, message_data: Dict[str, Any]) ->
 
                     with open(save_path, "wb") as f:
                         f.write(file_data)
+                        f.flush()  # Asegurar escritura al buffer
+                        os.fsync(f.fileno())  # Forzar escritura al disco
 
                     out["attachments"].append({
                         "type": "video",
@@ -439,6 +445,8 @@ def get_message_content(client: TelegramClient, message_data: Dict[str, Any]) ->
 
                     with open(save_path, "wb") as f:
                         f.write(file_data)
+                        f.flush()  # Asegurar escritura al buffer
+                        os.fsync(f.fileno())  # Forzar escritura al disco
 
                     out["attachments"].append({
                         "type": "audio",

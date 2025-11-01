@@ -351,6 +351,8 @@ async def process_document_with_template(
     content = await file.read()
     with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{file.filename}") as tmp:
         tmp.write(content)
+        tmp.flush()  # Asegurar que los datos se escriban al buffer
+        os.fsync(tmp.fileno())  # Forzar escritura al disco
         tmp_path = tmp.name
 
     try:

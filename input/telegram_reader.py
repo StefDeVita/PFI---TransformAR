@@ -17,10 +17,24 @@ class TelegramClient:
 
     BASE_URL = "https://api.telegram.org"
 
-    def __init__(self):
-        self.bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    def __init__(self, credentials_dict: Optional[Dict[str, Any]] = None):
+        """
+        Inicializa el cliente de Telegram.
+
+        Args:
+            credentials_dict: Credenciales desde Firestore (recomendado).
+                              Debe contener: {"bot_token": "..."}
+                              Si no se proporciona, usa variables de entorno (DEPRECATED).
+        """
+        if credentials_dict:
+            # Usar credenciales desde Firestore (multi-tenant)
+            self.bot_token = credentials_dict.get("bot_token")
+        else:
+            # DEPRECATED: Usar variables de entorno (modo legacy)
+            self.bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+
         if not self.bot_token:
-            raise ValueError("Falta variable de entorno: TELEGRAM_BOT_TOKEN es requerida")
+            raise ValueError("Falta bot_token de Telegram en credenciales o variables de entorno")
 
         self.api_url = f"{self.BASE_URL}/bot{self.bot_token}"
         self.offset = None  # Para tracking de updates en polling
@@ -182,20 +196,25 @@ class TelegramClient:
 
 # =============== FUNCIONES ESTÁNDAR (Interfaz compatible con Gmail/Outlook) ===============
 
-def authenticate_telegram() -> TelegramClient:
+def authenticate_telegram(credentials_dict: Optional[Dict[str, Any]] = None) -> TelegramClient:
     """
     Inicializa cliente Telegram
 
     A diferencia de Gmail/Outlook que usan OAuth, Telegram usa un token fijo
     obtenido desde @BotFather.
 
+    Args:
+        credentials_dict: Credenciales desde Firestore (recomendado).
+                          Debe contener: {"bot_token": "..."}
+                          Si no se proporciona, usa variables de entorno (DEPRECATED).
+
     Returns:
         TelegramClient configurado
 
     Raises:
-        ValueError: Si falta TELEGRAM_BOT_TOKEN
+        ValueError: Si falta bot_token en credenciales o variables de entorno
     """
-    return TelegramClient()
+    return TelegramClient(credentials_dict)
 
 
 def list_messages_telegram(client: TelegramClient, limit: int = 10) -> List[Dict[str, Any]]:

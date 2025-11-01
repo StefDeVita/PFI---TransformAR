@@ -19,14 +19,35 @@ class WhatsAppClient:
 
     BASE_URL = "https://graph.facebook.com/v18.0"
 
-    def __init__(self):
-        self.phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
-        self.access_token = os.getenv("WHATSAPP_ACCESS_TOKEN")
+    def __init__(self, credentials_dict: Optional[Dict[str, Any]] = None):
+        """
+        Inicializa el cliente de WhatsApp.
+
+        Args:
+            credentials_dict: Diccionario con credenciales desde Firestore
+                             {
+                                 "phone_number_id": "...",
+                                 "access_token": "...",
+                                 "business_account_id": "..." (opcional)
+                             }
+                             Si es None, usa variables de entorno (DEPRECATED)
+        """
+        if credentials_dict:
+            # Usar credenciales desde Firestore
+            self.phone_number_id = credentials_dict.get("phone_number_id")
+            self.access_token = credentials_dict.get("access_token")
+            self.business_account_id = credentials_dict.get("business_account_id")
+        else:
+            # DEPRECATED: Usar variables de entorno
+            self.phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
+            self.access_token = os.getenv("WHATSAPP_ACCESS_TOKEN")
+            self.business_account_id = os.getenv("WHATSAPP_BUSINESS_ACCOUNT_ID")
+
         self.webhook_token = os.getenv("WHATSAPP_WEBHOOK_TOKEN", "default_webhook_token")
 
         if not self.phone_number_id or not self.access_token:
             raise ValueError(
-                "Faltan variables de entorno: WHATSAPP_PHONE_NUMBER_ID y WHATSAPP_ACCESS_TOKEN son requeridas"
+                "Faltan credenciales de WhatsApp: phone_number_id y access_token son requeridas"
             )
 
     def _headers(self) -> Dict[str, str]:
@@ -112,20 +133,26 @@ class WhatsAppClient:
 
 # =============== FUNCIONES ESTÁNDAR (Interfaz compatible con Gmail/Outlook) ===============
 
-def authenticate_whatsapp() -> WhatsAppClient:
+def authenticate_whatsapp(credentials_dict: Optional[Dict[str, Any]] = None) -> WhatsAppClient:
     """
     Inicializa cliente WhatsApp
 
-    A diferencia de Gmail/Outlook que usan OAuth, WhatsApp usa un token de larga duración
-    obtenido desde Meta for Developers.
+    Args:
+        credentials_dict: Credenciales desde Firestore (opcional)
+                         {
+                             "phone_number_id": "...",
+                             "access_token": "...",
+                             "business_account_id": "..." (opcional)
+                         }
+                         Si es None, usa variables de entorno (DEPRECATED)
 
     Returns:
         WhatsAppClient configurado
 
     Raises:
-        ValueError: Si faltan variables de entorno requeridas
+        ValueError: Si faltan credenciales requeridas
     """
-    return WhatsAppClient()
+    return WhatsAppClient(credentials_dict)
 
 
 def list_messages_whatsapp(client: WhatsAppClient, limit: int = 10) -> List[Dict[str, Any]]:

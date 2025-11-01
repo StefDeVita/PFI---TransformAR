@@ -1,6 +1,6 @@
 # api.py (grid-templates aligned)
 from __future__ import annotations
-from fastapi import FastAPI, UploadFile, File, HTTPException, Query, Form, Request
+from fastapi import FastAPI, UploadFile, File, HTTPException, Query, Form, Request, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from pydantic.functional_validators import field_validator
@@ -13,13 +13,22 @@ from input.docling_reader import extract_text_with_layout
 from nlp.qwen_labeler import extract_with_qwen
 from nlp.instruction_qwen import interpret_with_qwen
 from nlp.apply_plan import execute_plan
-from input.gmail_reader import authenticate_gmail, list_messages as gmail_list, get_message_content as gmail_get
-from input.outlook_reader import authenticate_outlook, get_token, list_messages_outlook, get_message_body, \
-    get_attachments
+from input.gmail_reader import (
+    authenticate_gmail, list_messages as gmail_list, get_message_content as gmail_get,
+    authenticate_gmail_from_credentials, list_messages_from_credentials as gmail_list_from_creds,
+    get_message_content_from_credentials as gmail_get_from_creds
+)
+from input.outlook_reader import (
+    authenticate_outlook, get_token, list_messages_outlook, get_message_body, get_attachments,
+    list_messages_outlook_from_credentials as outlook_list_from_creds,
+    get_message_body_from_credentials as outlook_get_body_from_creds,
+    get_attachments_from_credentials as outlook_get_attachments_from_creds
+)
 from input.whatsapp_reader import authenticate_whatsapp, list_messages_whatsapp, get_message_content as whatsapp_get
 from input.telegram_reader import authenticate_telegram, list_messages_telegram, get_message_content as telegram_get
-from auth import authenticate_user, create_access_token, create_password_reset_token, send_password_reset_email
+from auth import authenticate_user, create_access_token, create_password_reset_token, send_password_reset_email, decode_jwt_token
 from integrations_routes import router as integrations_router
+from external_credentials import ExternalCredentialsManager
 
 UPLOAD_DIR = pathlib.Path("uploads")
 TEMPLATES_DIR = pathlib.Path("templates")
@@ -152,6 +161,42 @@ class RecoverPasswordRequest(BaseModel):
 
 
 # --------- Helpers ---------
+
+async def get_current_user_optional(authorization: str = Header(None)) -> Optional[str]:
+    """
+    Extrae el user_id del JWT token si está presente.
+    Retorna None si no hay token (para endpoints públicos).
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+
+    try:
+        token = authorization.split(" ")[1]
+        user_id = decode_jwt_token(token)
+        return user_id
+    except Exception:
+        return None
+
+
+async def get_current_user(authorization: str = Header(None)) -> str:
+    """
+    Extrae el user_id del JWT token.
+    Lanza HTTPException si el token es inválido o no está presente.
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="No se proporcionó token de autenticación")
+
+    try:
+        token = authorization.split(" ")[1]
+        user_id = decode_jwt_token(token)
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Token inválido")
+        return user_id
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Error decodificando token: {str(e)}")
+
 
 def _slug(s: str) -> str:
     s = ''.join(c for c in unicodedata.normalize('NFKD', s) if not unicodedata.combining(c))
@@ -331,25 +376,51 @@ async def upload_document(file: UploadFile = File(...)):
 
 # Gmail
 @app.get("/input/gmail/messages")
-def gmail_messages(limit: int = Query(10, ge=1, le=50)):
-    service = authenticate_gmail()
-    mails = gmail_list(service, max_results=limit)
+async def gmail_messages(limit: int = Query(10, ge=1, le=50), user_id: str = Depends(get_current_user)):
+    """Lista mensajes de Gmail usando las credenciales del usuario autenticado."""
+    cred_manager = ExternalCredentialsManager()
+    gmail_creds = await cred_manager.get_credential(user_id, "gmail")
+
+    if not gmail_creds:
+        raise HTTPException(
+            status_code=400,
+            detail="No has conectado tu cuenta de Gmail. Usa POST /integrations/gmail/connect primero."
+        )
+
+    mails = gmail_list_from_creds(gmail_creds, max_results=limit)
     return {"messages": [{"id": m["id"], "from": m.get("from"), "subject": m.get("subject")} for m in mails]}
 
 
 @app.get("/input/gmail/messages/{msg_id}")
-def gmail_message_detail(msg_id: str):
-    service = authenticate_gmail()
-    content = gmail_get(service, msg_id)
+async def gmail_message_detail(msg_id: str, user_id: str = Depends(get_current_user)):
+    """Obtiene detalles de un mensaje de Gmail usando las credenciales del usuario autenticado."""
+    cred_manager = ExternalCredentialsManager()
+    gmail_creds = await cred_manager.get_credential(user_id, "gmail")
+
+    if not gmail_creds:
+        raise HTTPException(
+            status_code=400,
+            detail="No has conectado tu cuenta de Gmail. Usa POST /integrations/gmail/connect primero."
+        )
+
+    content = gmail_get_from_creds(gmail_creds, msg_id)
     return {"text": content.get("text", ""), "attachments": content.get("attachments", [])}
 
 
 # Outlook
 @app.get("/input/outlook/messages")
-def outlook_messages(limit: int = Query(10, ge=1, le=50)):
-    app_o = authenticate_outlook()
-    token = get_token(app_o)
-    mails = list_messages_outlook(token, top=limit)
+async def outlook_messages(limit: int = Query(10, ge=1, le=50), user_id: str = Depends(get_current_user)):
+    """Lista mensajes de Outlook usando las credenciales del usuario autenticado."""
+    cred_manager = ExternalCredentialsManager()
+    outlook_creds = await cred_manager.get_credential(user_id, "outlook")
+
+    if not outlook_creds:
+        raise HTTPException(
+            status_code=400,
+            detail="No has conectado tu cuenta de Outlook. Usa POST /integrations/outlook/connect primero."
+        )
+
+    mails = outlook_list_from_creds(outlook_creds, top=limit)
     out = []
     for m in mails:
         sender = (m.get("sender") or {}).get("emailAddress", {}).get("address")
@@ -359,28 +430,47 @@ def outlook_messages(limit: int = Query(10, ge=1, le=50)):
 
 
 @app.get("/input/outlook/messages/{msg_id}")
-def outlook_message_detail(msg_id: str):
-    app_o = authenticate_outlook()
-    token = get_token(app_o)
-    text = get_message_body(token, msg_id)
-    atts = get_attachments(token, msg_id)
+async def outlook_message_detail(msg_id: str, user_id: str = Depends(get_current_user)):
+    """Obtiene detalles de un mensaje de Outlook usando las credenciales del usuario autenticado."""
+    cred_manager = ExternalCredentialsManager()
+    outlook_creds = await cred_manager.get_credential(user_id, "outlook")
+
+    if not outlook_creds:
+        raise HTTPException(
+            status_code=400,
+            detail="No has conectado tu cuenta de Outlook. Usa POST /integrations/outlook/connect primero."
+        )
+
+    text = outlook_get_body_from_creds(outlook_creds, msg_id)
+    atts = outlook_get_attachments_from_creds(outlook_creds, msg_id)
     return {"text": text or "", "attachments": atts or []}
 
 
 # WhatsApp
 @app.get("/input/whatsapp/messages")
-def whatsapp_messages(limit: int = Query(10, ge=1, le=50)):
+async def whatsapp_messages(limit: int = Query(10, ge=1, le=50), user_id: str = Depends(get_current_user)):
     """
-    Lista mensajes de WhatsApp.
+    Lista mensajes de WhatsApp usando las credenciales del usuario autenticado.
 
     NOTA: WhatsApp no provee un endpoint para listar mensajes históricos.
     Los mensajes deben ser capturados por webhook y almacenados en una DB.
     Esta función devuelve una lista vacía como placeholder.
     """
     try:
-        client = authenticate_whatsapp()
+        cred_manager = ExternalCredentialsManager()
+        whatsapp_creds = await cred_manager.get_credential(user_id, "whatsapp")
+
+        if not whatsapp_creds:
+            raise HTTPException(
+                status_code=400,
+                detail="No has conectado tu cuenta de WhatsApp. Usa POST /integrations/whatsapp/connect primero."
+            )
+
+        client = authenticate_whatsapp(whatsapp_creds)
         messages = list_messages_whatsapp(client, limit=limit)
         return {"messages": messages}
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(500, f"Error de configuración: {str(e)}")
     except Exception as e:
@@ -388,16 +478,27 @@ def whatsapp_messages(limit: int = Query(10, ge=1, le=50)):
 
 
 @app.post("/input/whatsapp/content")
-def whatsapp_content(message_data: Dict[str, Any]):
+async def whatsapp_content(message_data: Dict[str, Any], user_id: str = Depends(get_current_user)):
     """
     Obtiene el contenido completo de un mensaje de WhatsApp.
 
     El message_data debe contener la estructura del mensaje del webhook.
     """
     try:
-        client = authenticate_whatsapp()
+        cred_manager = ExternalCredentialsManager()
+        whatsapp_creds = await cred_manager.get_credential(user_id, "whatsapp")
+
+        if not whatsapp_creds:
+            raise HTTPException(
+                status_code=400,
+                detail="No has conectado tu cuenta de WhatsApp. Usa POST /integrations/whatsapp/connect primero."
+            )
+
+        client = authenticate_whatsapp(whatsapp_creds)
         content = whatsapp_get(client, message_data)
         return {"text": content.get("text", ""), "attachments": content.get("attachments", [])}
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(500, f"Error de configuración: {str(e)}")
     except Exception as e:
@@ -460,16 +561,27 @@ async def whatsapp_webhook_verify(
 
 # Telegram
 @app.get("/input/telegram/messages")
-def telegram_messages(limit: int = Query(10, ge=1, le=50)):
+async def telegram_messages(limit: int = Query(10, ge=1, le=50), user_id: str = Depends(get_current_user)):
     """
-    Lista últimos mensajes de Telegram usando polling.
+    Lista últimos mensajes de Telegram usando polling y las credenciales del usuario autenticado.
 
     Para producción se recomienda usar webhook en lugar de polling.
     """
     try:
-        client = authenticate_telegram()
+        cred_manager = ExternalCredentialsManager()
+        telegram_creds = await cred_manager.get_credential(user_id, "telegram")
+
+        if not telegram_creds:
+            raise HTTPException(
+                status_code=400,
+                detail="No has conectado tu cuenta de Telegram. Usa POST /integrations/telegram/connect primero."
+            )
+
+        client = authenticate_telegram(telegram_creds)
         messages = list_messages_telegram(client, limit=limit)
         return {"messages": messages}
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(500, f"Error de configuración: {str(e)}")
     except Exception as e:
@@ -477,16 +589,27 @@ def telegram_messages(limit: int = Query(10, ge=1, le=50)):
 
 
 @app.post("/input/telegram/content")
-def telegram_content(message_data: Dict[str, Any]):
+async def telegram_content(message_data: Dict[str, Any], user_id: str = Depends(get_current_user)):
     """
     Obtiene el contenido completo de un mensaje de Telegram.
 
     El message_data debe contener la estructura completa del mensaje.
     """
     try:
-        client = authenticate_telegram()
+        cred_manager = ExternalCredentialsManager()
+        telegram_creds = await cred_manager.get_credential(user_id, "telegram")
+
+        if not telegram_creds:
+            raise HTTPException(
+                status_code=400,
+                detail="No has conectado tu cuenta de Telegram. Usa POST /integrations/telegram/connect primero."
+            )
+
+        client = authenticate_telegram(telegram_creds)
         content = telegram_get(client, message_data)
         return {"text": content.get("text", ""), "attachments": content.get("attachments", [])}
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(500, f"Error de configuración: {str(e)}")
     except Exception as e:
@@ -540,13 +663,16 @@ def upsert_template(gt: GridTemplate):
 
 # Proceso
 @app.post("/process")
-def process(req: ProcessRequest):
+async def process(req: ProcessRequest, user_id: str = Depends(get_current_user)):
     gtpl = _load_template_grid(req.template_id)
     compiled = _compile_grid_to_instructions(gtpl)
     extract_instr = compiled["extract_instr"]
     transform_instr = compiled["transform_instr"]
 
     text: Optional[str] = None
+
+    # Inicializar credential manager
+    cred_manager = ExternalCredentialsManager()
 
     if req.method == "text":
         if not req.text: raise HTTPException(400, "Falta 'text'")
@@ -562,8 +688,17 @@ def process(req: ProcessRequest):
 
     elif req.method == "gmail":
         if not req.gmail: raise HTTPException(400, "Falta 'gmail'")
-        service = authenticate_gmail()
-        content = gmail_get(service, req.gmail.message_id)
+
+        # Obtener credenciales del usuario desde Firestore
+        gmail_creds = await cred_manager.get_credential(user_id, "gmail")
+        if not gmail_creds:
+            raise HTTPException(
+                status_code=400,
+                detail="No has conectado tu cuenta de Gmail. Usa POST /integrations/gmail/connect primero."
+            )
+
+        # Usar funciones que aceptan credenciales desde Firestore
+        content = gmail_get_from_creds(gmail_creds, req.gmail.message_id)
         if req.gmail.use_text or not content.get("attachments"):
             text = content.get("text", "")
             if not text: raise HTTPException(400, "El correo no tiene texto utilizable.")
@@ -576,24 +711,42 @@ def process(req: ProcessRequest):
 
     elif req.method == "outlook":
         if not req.outlook: raise HTTPException(400, "Falta 'outlook'")
-        app_o = authenticate_outlook()
-        token = get_token(app_o)
+
+        # Obtener credenciales del usuario desde Firestore
+        outlook_creds = await cred_manager.get_credential(user_id, "outlook")
+        if not outlook_creds:
+            raise HTTPException(
+                status_code=400,
+                detail="No has conectado tu cuenta de Outlook. Usa POST /integrations/outlook/connect primero."
+            )
+
+        # Usar funciones que aceptan credenciales desde Firestore
         if req.outlook.use_text:
-            text = get_message_body(token, req.outlook.message_id)
+            text = outlook_get_body_from_creds(outlook_creds, req.outlook.message_id)
             if not text: raise HTTPException(400, "No se pudo obtener texto del correo.")
         else:
-            files = get_attachments(token, req.outlook.message_id)
+            files = outlook_get_attachments_from_creds(outlook_creds, req.outlook.message_id)
             if files:
                 idx = req.outlook.attachment_index or 0
                 if idx < 0 or idx >= len(files): raise HTTPException(400, "attachment_index inválido")
                 result = _pipeline_from_file(pathlib.Path(files[idx]), extract_instr, transform_instr)
                 return {"result": result, "compiled": compiled}
             else:
-                text = get_message_body(token, req.outlook.message_id)
+                text = outlook_get_body_from_creds(outlook_creds, req.outlook.message_id)
 
     elif req.method == "whatsapp":
         if not req.whatsapp: raise HTTPException(400, "Falta 'whatsapp'")
-        client = authenticate_whatsapp()
+
+        # Obtener credenciales del usuario desde Firestore
+        whatsapp_creds = await cred_manager.get_credential(user_id, "whatsapp")
+        if not whatsapp_creds:
+            raise HTTPException(
+                status_code=400,
+                detail="No has conectado tu cuenta de WhatsApp. Usa POST /integrations/whatsapp/connect primero."
+            )
+
+        # Crear cliente con credenciales desde Firestore
+        client = authenticate_whatsapp(whatsapp_creds)
         content = whatsapp_get(client, req.whatsapp.message_data)
         if req.whatsapp.use_text or not content.get("attachments"):
             text = content.get("text", "")
@@ -607,7 +760,17 @@ def process(req: ProcessRequest):
 
     elif req.method == "telegram":
         if not req.telegram: raise HTTPException(400, "Falta 'telegram'")
-        client = authenticate_telegram()
+
+        # Obtener credenciales del usuario desde Firestore
+        telegram_creds = await cred_manager.get_credential(user_id, "telegram")
+        if not telegram_creds:
+            raise HTTPException(
+                status_code=400,
+                detail="No has conectado tu cuenta de Telegram. Usa POST /integrations/telegram/connect primero."
+            )
+
+        # Crear cliente con credenciales desde Firestore
+        client = authenticate_telegram(telegram_creds)
         content = telegram_get(client, req.telegram.message_data)
         if req.telegram.use_text or not content.get("attachments"):
             text = content.get("text", "")

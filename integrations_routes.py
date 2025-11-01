@@ -371,21 +371,26 @@ async def connect_outlook_callback(
         raise HTTPException(status_code=400, detail="Code verifier no encontrado")
 
     client_id = os.getenv("OUTLOOK_CLIENT_ID")
+    client_secret = os.getenv("OUTLOOK_CLIENT_SECRET")
     redirect_uri = os.getenv("OUTLOOK_REDIRECT_URI", "http://localhost:8000/integration/outlook/callback")
 
     try:
         # Intercambiar código por token usando PKCE
         token_endpoint = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
 
-        # Con PKCE, NO se envía client_secret (es para clientes públicos)
-        # El code_verifier reemplaza la necesidad del client_secret
+        # PKCE con client_secret (cliente confidencial) o sin él (cliente público)
+        # Azure AD detecta automáticamente el tipo de app según lo configurado en el portal
         token_data = {
             "client_id": client_id,
             "code": code,
             "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
-            "code_verifier": code_verifier,
+            "code_verifier": code_verifier,  # PKCE siempre se envía
         }
+
+        # Si hay client_secret configurado, agregarlo (cliente confidencial)
+        if client_secret:
+            token_data["client_secret"] = client_secret
 
         token_response = requests.post(token_endpoint, data=token_data)
 

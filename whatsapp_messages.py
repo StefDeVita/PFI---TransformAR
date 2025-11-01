@@ -24,7 +24,7 @@ async def save_whatsapp_message(
     Mantiene solo los últimos max_messages mensajes
 
     Args:
-        user_id: ID del usuario
+        user_id: ID del usuario que RECIBE el mensaje
         message_data: Datos completos del mensaje del webhook
         max_messages: Número máximo de mensajes a mantener (default: 10)
 
@@ -35,12 +35,28 @@ async def save_whatsapp_message(
     users/{user_id}/whatsapp_messages/{message_id}
     {
         "message_id": "wamid.xxx",
-        "from": "+1234567890",
+        "sender": {
+            "phone": "+1234567890",
+            "name": "John Doe"  # si está disponible
+        },
         "timestamp": "2024-01-01T12:00:00Z",
-        "type": "text|image|document|audio|video",
-        "text": "contenido del mensaje",
-        "media": {...},  # si aplica
-        "raw_data": {...}  # datos completos del webhook
+        "received_at": (SERVER_TIMESTAMP),
+        "type": "text|image|document|audio|video|sticker|location|contacts",
+        "content": {
+            "text": "contenido del mensaje",  # para mensajes de texto
+            "caption": "descripción"  # para media con caption
+        },
+        "attachment": {  # si hay adjunto
+            "type": "image|video|document|audio|sticker|location|contacts",
+            "mime_type": "image/jpeg",
+            "url": "https://...",  # URL para descargar
+            "id": "media_id",
+            "filename": "archivo.pdf",  # para documentos
+            "latitude": -34.xxx,  # para ubicaciones
+            "longitude": -58.xxx,
+            ...
+        },
+        "raw_data": {...}  # datos completos del webhook para debug
     }
     """
     try:
@@ -49,7 +65,7 @@ async def save_whatsapp_message(
             print("[WhatsApp Messages] Error: Firestore no está inicializado")
             return False
 
-        # Extraer información del mensaje
+        # Extraer información básica del mensaje
         msg_id = message_data.get("id")
         from_number = message_data.get("from")
         timestamp = message_data.get("timestamp")
@@ -62,27 +78,108 @@ async def save_whatsapp_message(
         # Referencia a la colección de mensajes del usuario
         messages_ref = db.collection("users").document(user_id).collection("whatsapp_messages")
 
-        # Preparar datos del mensaje
+        # Preparar datos básicos del mensaje
         message_doc = {
             "message_id": msg_id,
-            "from": from_number,
+            "sender": {
+                "phone": from_number,
+                "name": message_data.get("profile", {}).get("name", "")  # nombre del contacto si está disponible
+            },
             "timestamp": timestamp,
             "received_at": firestore.SERVER_TIMESTAMP,
             "type": msg_type,
             "raw_data": message_data
         }
 
-        # Extraer texto si existe
-        if msg_type == "text" and "text" in message_data:
-            message_doc["text"] = message_data["text"].get("body", "")
+        # Inicializar content y attachment
+        content = {}
+        attachment = None
 
-        # Extraer información de media si existe
-        if msg_type in ["image", "document", "audio", "video"] and msg_type in message_data:
-            message_doc["media"] = message_data[msg_type]
+        # Extraer contenido según el tipo de mensaje
+        if msg_type == "text" and "text" in message_data:
+            content["text"] = message_data["text"].get("body", "")
+
+        elif msg_type == "image" and "image" in message_data:
+            image_data = message_data["image"]
+            attachment = {
+                "type": "image",
+                "mime_type": image_data.get("mime_type", "image/jpeg"),
+                "id": image_data.get("id"),
+                "sha256": image_data.get("sha256")
+            }
+            # Caption opcional
+            if image_data.get("caption"):
+                content["caption"] = image_data["caption"]
+
+        elif msg_type == "video" and "video" in message_data:
+            video_data = message_data["video"]
+            attachment = {
+                "type": "video",
+                "mime_type": video_data.get("mime_type", "video/mp4"),
+                "id": video_data.get("id"),
+                "sha256": video_data.get("sha256")
+            }
+            if video_data.get("caption"):
+                content["caption"] = video_data["caption"]
+
+        elif msg_type == "document" and "document" in message_data:
+            doc_data = message_data["document"]
+            attachment = {
+                "type": "document",
+                "mime_type": doc_data.get("mime_type", "application/octet-stream"),
+                "id": doc_data.get("id"),
+                "filename": doc_data.get("filename", "documento"),
+                "sha256": doc_data.get("sha256")
+            }
+            if doc_data.get("caption"):
+                content["caption"] = doc_data["caption"]
+
+        elif msg_type == "audio" and "audio" in message_data:
+            audio_data = message_data["audio"]
+            attachment = {
+                "type": "audio",
+                "mime_type": audio_data.get("mime_type", "audio/ogg"),
+                "id": audio_data.get("id"),
+                "voice": audio_data.get("voice", False),  # True si es nota de voz
+                "sha256": audio_data.get("sha256")
+            }
+
+        elif msg_type == "sticker" and "sticker" in message_data:
+            sticker_data = message_data["sticker"]
+            attachment = {
+                "type": "sticker",
+                "mime_type": sticker_data.get("mime_type", "image/webp"),
+                "id": sticker_data.get("id"),
+                "animated": sticker_data.get("animated", False),
+                "sha256": sticker_data.get("sha256")
+            }
+
+        elif msg_type == "location" and "location" in message_data:
+            loc_data = message_data["location"]
+            attachment = {
+                "type": "location",
+                "latitude": loc_data.get("latitude"),
+                "longitude": loc_data.get("longitude"),
+                "name": loc_data.get("name", ""),
+                "address": loc_data.get("address", "")
+            }
+
+        elif msg_type == "contacts" and "contacts" in message_data:
+            contacts_data = message_data["contacts"]
+            attachment = {
+                "type": "contacts",
+                "contacts": contacts_data  # Lista de contactos
+            }
+
+        # Agregar content y attachment al documento si existen
+        if content:
+            message_doc["content"] = content
+        if attachment:
+            message_doc["attachment"] = attachment
 
         # Guardar el mensaje
         messages_ref.document(msg_id).set(message_doc)
-        print(f"[WhatsApp Messages] Mensaje guardado para usuario {user_id}: {msg_id}")
+        print(f"[WhatsApp Messages] Mensaje guardado para usuario {user_id}: {msg_id} (tipo: {msg_type}, remitente: {from_number})")
 
         # Mantener solo los últimos max_messages
         await cleanup_old_messages(user_id, max_messages)
@@ -91,6 +188,8 @@ async def save_whatsapp_message(
 
     except Exception as e:
         print(f"[WhatsApp Messages] Error guardando mensaje: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
@@ -134,11 +233,33 @@ async def get_whatsapp_messages(
     Obtiene los últimos mensajes de WhatsApp de un usuario desde Firestore
 
     Args:
-        user_id: ID del usuario
+        user_id: ID del usuario que recibe los mensajes
         limit: Número máximo de mensajes a devolver
 
     Returns:
-        Lista de mensajes en formato compatible con la API
+        Lista de mensajes con estructura completa:
+        [
+            {
+                "id": "wamid.xxx",
+                "sender": {
+                    "phone": "+1234567890",
+                    "name": "John Doe"
+                },
+                "timestamp": "1234567890",
+                "received_at": "2024-01-01T12:00:00Z",
+                "type": "text|image|video|document|audio|sticker|location|contacts",
+                "content": {
+                    "text": "mensaje de texto",
+                    "caption": "descripción del adjunto"
+                },
+                "attachment": {
+                    "type": "image",
+                    "mime_type": "image/jpeg",
+                    "id": "media_id",
+                    ...
+                }
+            }
+        ]
     """
     try:
         db = _get_db()
@@ -155,18 +276,32 @@ async def get_whatsapp_messages(
         for doc in docs:
             data = doc.to_dict()
 
-            # Formato compatible con la API
+            # Formato estructurado completo
             message = {
                 "id": data.get("message_id"),
-                "from": data.get("from"),
+                "sender": data.get("sender", {
+                    "phone": data.get("from", ""),  # fallback para mensajes antiguos
+                    "name": ""
+                }),
                 "timestamp": data.get("timestamp"),
-                "type": data.get("type", "text"),
-                "text": data.get("text", ""),
-                "raw_data": data.get("raw_data", {})
+                "received_at": data.get("received_at"),
+                "type": data.get("type", "text")
             }
 
-            if "media" in data:
-                message["media"] = data["media"]
+            # Agregar content si existe
+            if "content" in data:
+                message["content"] = data["content"]
+            else:
+                # Fallback para mensajes antiguos que solo tienen "text"
+                if data.get("text"):
+                    message["content"] = {"text": data["text"]}
+
+            # Agregar attachment si existe
+            if "attachment" in data:
+                message["attachment"] = data["attachment"]
+            elif "media" in data:
+                # Fallback para mensajes antiguos que solo tienen "media"
+                message["attachment"] = data["media"]
 
             messages.append(message)
 
@@ -174,6 +309,8 @@ async def get_whatsapp_messages(
 
     except Exception as e:
         print(f"[WhatsApp Messages] Error obteniendo mensajes: {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
 

@@ -145,7 +145,7 @@ async def connect_gmail_start(
 
     # Configurar flujo OAuth
     scopes = ['https://www.googleapis.com/auth/gmail.readonly']
-    redirect_uri = os.getenv("GMAIL_REDIRECT_URI", "http://localhost:8000/integrations/gmail/callback")
+    redirect_uri = os.getenv("GMAIL_REDIRECT_URI", "http://localhost:8000/integration/gmail/callback")
 
     try:
         flow = Flow.from_client_secrets_file(
@@ -190,7 +190,7 @@ async def connect_gmail_callback(
     user_id = gmail_oauth_states.pop(state)
 
     credentials_path = os.path.join("input", "credentials.json")
-    redirect_uri = os.getenv("GMAIL_REDIRECT_URI", "http://localhost:8000/integrations/gmail/callback")
+    redirect_uri = os.getenv("GMAIL_REDIRECT_URI", "http://localhost:8000/integration/gmail/callback")
 
     try:
         scopes = ['https://www.googleapis.com/auth/gmail.readonly']
@@ -289,7 +289,7 @@ async def connect_outlook_start(
     """
     client_id = os.getenv("OUTLOOK_CLIENT_ID")
     client_secret = os.getenv("OUTLOOK_CLIENT_SECRET")
-    redirect_uri = os.getenv("OUTLOOK_REDIRECT_URI", "http://localhost:8000/integrations/outlook/callback")
+    redirect_uri = os.getenv("OUTLOOK_REDIRECT_URI", "http://localhost:8000/integration/outlook/callback")
 
     if not client_id or not client_secret:
         raise HTTPException(
@@ -341,7 +341,7 @@ async def connect_outlook_callback(
 
     client_id = os.getenv("OUTLOOK_CLIENT_ID")
     client_secret = os.getenv("OUTLOOK_CLIENT_SECRET")
-    redirect_uri = os.getenv("OUTLOOK_REDIRECT_URI", "http://localhost:8000/integrations/outlook/callback")
+    redirect_uri = os.getenv("OUTLOOK_REDIRECT_URI", "http://localhost:8000/integration/outlook/callback")
 
     try:
         authority = "https://login.microsoftonline.com/common"

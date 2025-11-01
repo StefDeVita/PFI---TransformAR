@@ -384,7 +384,7 @@ async def gmail_messages(limit: int = Query(10, ge=1, le=50), user_id: str = Dep
     if not gmail_creds:
         raise HTTPException(
             status_code=400,
-            detail="No has conectado tu cuenta de Gmail. Usa POST /integrations/gmail/connect primero."
+            detail="No has conectado tu cuenta de Gmail. Usa POST /integration/gmail/connect primero."
         )
 
     mails = gmail_list_from_creds(gmail_creds, max_results=limit)
@@ -400,7 +400,7 @@ async def gmail_message_detail(msg_id: str, user_id: str = Depends(get_current_u
     if not gmail_creds:
         raise HTTPException(
             status_code=400,
-            detail="No has conectado tu cuenta de Gmail. Usa POST /integrations/gmail/connect primero."
+            detail="No has conectado tu cuenta de Gmail. Usa POST /integration/gmail/connect primero."
         )
 
     content = gmail_get_from_creds(gmail_creds, msg_id)
@@ -417,7 +417,7 @@ async def outlook_messages(limit: int = Query(10, ge=1, le=50), user_id: str = D
     if not outlook_creds:
         raise HTTPException(
             status_code=400,
-            detail="No has conectado tu cuenta de Outlook. Usa POST /integrations/outlook/connect primero."
+            detail="No has conectado tu cuenta de Outlook. Usa POST /integration/outlook/connect primero."
         )
 
     mails = outlook_list_from_creds(outlook_creds, top=limit)
@@ -438,7 +438,7 @@ async def outlook_message_detail(msg_id: str, user_id: str = Depends(get_current
     if not outlook_creds:
         raise HTTPException(
             status_code=400,
-            detail="No has conectado tu cuenta de Outlook. Usa POST /integrations/outlook/connect primero."
+            detail="No has conectado tu cuenta de Outlook. Usa POST /integration/outlook/connect primero."
         )
 
     text = outlook_get_body_from_creds(outlook_creds, msg_id)
@@ -463,7 +463,7 @@ async def whatsapp_messages(limit: int = Query(10, ge=1, le=50), user_id: str = 
         if not whatsapp_creds:
             raise HTTPException(
                 status_code=400,
-                detail="No has conectado tu cuenta de WhatsApp. Usa POST /integrations/whatsapp/connect primero."
+                detail="No has conectado tu cuenta de WhatsApp. Usa POST /integration/whatsapp/connect primero."
             )
 
         client = authenticate_whatsapp(whatsapp_creds)
@@ -491,7 +491,7 @@ async def whatsapp_content(message_data: Dict[str, Any], user_id: str = Depends(
         if not whatsapp_creds:
             raise HTTPException(
                 status_code=400,
-                detail="No has conectado tu cuenta de WhatsApp. Usa POST /integrations/whatsapp/connect primero."
+                detail="No has conectado tu cuenta de WhatsApp. Usa POST /integration/whatsapp/connect primero."
             )
 
         client = authenticate_whatsapp(whatsapp_creds)
@@ -574,7 +574,7 @@ async def telegram_messages(limit: int = Query(10, ge=1, le=50), user_id: str = 
         if not telegram_creds:
             raise HTTPException(
                 status_code=400,
-                detail="No has conectado tu cuenta de Telegram. Usa POST /integrations/telegram/connect primero."
+                detail="No has conectado tu cuenta de Telegram. Usa POST /integration/telegram/connect primero."
             )
 
         client = authenticate_telegram(telegram_creds)
@@ -602,7 +602,7 @@ async def telegram_content(message_data: Dict[str, Any], user_id: str = Depends(
         if not telegram_creds:
             raise HTTPException(
                 status_code=400,
-                detail="No has conectado tu cuenta de Telegram. Usa POST /integrations/telegram/connect primero."
+                detail="No has conectado tu cuenta de Telegram. Usa POST /integration/telegram/connect primero."
             )
 
         client = authenticate_telegram(telegram_creds)
@@ -694,7 +694,7 @@ async def process(req: ProcessRequest, user_id: str = Depends(get_current_user))
         if not gmail_creds:
             raise HTTPException(
                 status_code=400,
-                detail="No has conectado tu cuenta de Gmail. Usa POST /integrations/gmail/connect primero."
+                detail="No has conectado tu cuenta de Gmail. Usa POST /integration/gmail/connect primero."
             )
 
         # Usar funciones que aceptan credenciales desde Firestore
@@ -717,7 +717,7 @@ async def process(req: ProcessRequest, user_id: str = Depends(get_current_user))
         if not outlook_creds:
             raise HTTPException(
                 status_code=400,
-                detail="No has conectado tu cuenta de Outlook. Usa POST /integrations/outlook/connect primero."
+                detail="No has conectado tu cuenta de Outlook. Usa POST /integration/outlook/connect primero."
             )
 
         # Usar funciones que aceptan credenciales desde Firestore
@@ -742,7 +742,7 @@ async def process(req: ProcessRequest, user_id: str = Depends(get_current_user))
         if not whatsapp_creds:
             raise HTTPException(
                 status_code=400,
-                detail="No has conectado tu cuenta de WhatsApp. Usa POST /integrations/whatsapp/connect primero."
+                detail="No has conectado tu cuenta de WhatsApp. Usa POST /integration/whatsapp/connect primero."
             )
 
         # Crear cliente con credenciales desde Firestore
@@ -766,7 +766,7 @@ async def process(req: ProcessRequest, user_id: str = Depends(get_current_user))
         if not telegram_creds:
             raise HTTPException(
                 status_code=400,
-                detail="No has conectado tu cuenta de Telegram. Usa POST /integrations/telegram/connect primero."
+                detail="No has conectado tu cuenta de Telegram. Usa POST /integration/telegram/connect primero."
             )
 
         # Crear cliente con credenciales desde Firestore

@@ -584,25 +584,47 @@ async def whatsapp_download_media_endpoint(media_id: str, user_id: str = Depends
 
     El frontend puede usarlo en un <img>, <video>, o descargar directamente.
     """
+    print(f"[WhatsApp Media] Solicitud de descarga - media_id: {media_id}, user_id: {user_id}")
+
     try:
         cred_manager = ExternalCredentialsManager()
         whatsapp_creds = await cred_manager.get_credential(user_id, "whatsapp")
 
         if not whatsapp_creds:
+            print(f"[WhatsApp Media] Error: Usuario {user_id} no tiene credenciales de WhatsApp")
             raise HTTPException(
                 status_code=400,
                 detail="No has conectado tu cuenta de WhatsApp. Usa POST /integration/whatsapp/connect primero."
             )
 
+        print(f"[WhatsApp Media] Descargando archivo con media_id: {media_id}")
+
         # Descargar archivo usando credenciales
         file_data = whatsapp_download_media(whatsapp_creds, media_id)
 
         if not file_data:
+            print(f"[WhatsApp Media] Error: No se pudo descargar el archivo con media_id: {media_id}")
             raise HTTPException(404, f"No se pudo descargar el archivo multimedia con ID: {media_id}")
 
-        # Determinar tipo de contenido (por defecto application/octet-stream)
-        # WhatsApp no devuelve el tipo MIME directamente, así que usamos genérico
+        print(f"[WhatsApp Media] Archivo descargado exitosamente, tamaño: {len(file_data)} bytes")
+
+        # Verificar que el archivo descargado sea binario y no HTML
+        if file_data.startswith(b'<!DOCTYPE') or file_data.startswith(b'<html'):
+            print(f"[WhatsApp Media] ERROR: Se descargó HTML en lugar de archivo binario")
+            print(f"[WhatsApp Media] Primeros 200 bytes: {file_data[:200]}")
+            raise HTTPException(500, "Error: Se recibió HTML en lugar del archivo multimedia. Verifica las credenciales de WhatsApp.")
+
+        # Determinar tipo de contenido basado en los primeros bytes
         media_type = "application/octet-stream"
+        if file_data.startswith(b'%PDF'):
+            media_type = "application/pdf"
+            print(f"[WhatsApp Media] Tipo detectado: PDF")
+        elif file_data.startswith(b'\xFF\xD8\xFF'):
+            media_type = "image/jpeg"
+            print(f"[WhatsApp Media] Tipo detectado: JPEG")
+        elif file_data.startswith(b'\x89PNG'):
+            media_type = "image/png"
+            print(f"[WhatsApp Media] Tipo detectado: PNG")
 
         # Crear stream de bytes
         file_stream = io.BytesIO(file_data)
@@ -619,9 +641,10 @@ async def whatsapp_download_media_endpoint(media_id: str, user_id: str = Depends
     except HTTPException:
         raise
     except ValueError as e:
+        print(f"[WhatsApp Media] ValueError: {str(e)}")
         raise HTTPException(500, f"Error de configuración: {str(e)}")
     except Exception as e:
-        print(f"[WhatsApp Media] Error descargando media {media_id}: {e}")
+        print(f"[WhatsApp Media] Exception: {str(e)}")
         import traceback
         traceback.print_exc()
         raise HTTPException(500, f"Error descargando archivo: {str(e)}")

@@ -78,22 +78,28 @@ def get_organization_id() -> str:
     if not _organization_id:
         _organization_id = "default"
     return _organization_id
-def get_organization_ref(db=None):
-    """Return the Firestore document reference for the current organization."""
+
+def get_organization_ref(db=None, organization_id: Optional[str] = None):
+    """Return the Firestore document reference for the current or specified organization."""
     if db is None:
         db = get_db()
     if db is None:
         return None
-    return db.collection(ORGANIZATION_COLLECTION).document(get_organization_id())
-def get_users_collection(db=None):
+    org_id = organization_id
+    if not org_id:
+        return None
+    return db.collection(ORGANIZATION_COLLECTION).document(org_id)
+
+def get_users_collection(db=None, organization_id: Optional[str] = None):
     """Return the users subcollection reference within the organization."""
-    org_ref = get_organization_ref(db)
+    org_ref = get_organization_ref(db, organization_id)
     if org_ref is None:
         return None
     return org_ref.collection(USERS_SUBCOLLECTION)
-def get_user_document(user_id: str, db=None):
+
+def get_user_document(user_id: str, db=None, organization_id: Optional[str] = None):
     """Return the document reference for a specific user within the organization."""
-    users_ref = get_users_collection(db)
+    users_ref = get_users_collection(db, organization_id)
     if users_ref is None:
         return None
     return users_ref.document(user_id)
@@ -101,7 +107,6 @@ def get_user_document(user_id: str, db=None):
 def hash_password(password: str) -> str:
     """Hash a password using bcrypt"""
     return pwd_context.hash(password)
-
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against a hashed password"""
@@ -167,7 +172,7 @@ def decode_jwt_token(token: str) -> Optional[str]:
     return None
 
 
-async def authenticate_user(organization:str, email: str, password: str) -> Optional[Dict[str, Any]]:
+async def authenticate_user(organization: str, email: str, password: str) -> Optional[Dict[str, Any]]:
     """
     Authenticate a user with email and password
 
@@ -185,7 +190,9 @@ async def authenticate_user(organization:str, email: str, password: str) -> Opti
 
     try:
         # Query users collection for the email within the organization
-        users_ref = get_users_collection(db)
+        print("organization authenticate: "+organization)
+        print("email: "+ email)
+        users_ref = get_users_collection(db, organization)
         if users_ref is None:
             return None
         query = users_ref.where('email', '==', email).limit(1)
@@ -201,6 +208,11 @@ async def authenticate_user(organization:str, email: str, password: str) -> Opti
 
         user_data = user_doc.to_dict()
         user_data['id'] = user_doc.id
+        print("ur id: " + user_doc.id)
+
+        print("pass: "+ password)
+        print("get pass: "+ user_data.get('password'))
+
 
         # Verify password
         if not password == user_data.get('password', ''):
@@ -209,6 +221,9 @@ async def authenticate_user(organization:str, email: str, password: str) -> Opti
         # Remove password from returned data
         user_data.pop('password', None)
 
+        # Attach organization information for client convenience
+        user_data['organization'] = organization
+
         return user_data
 
     except Exception as e:
@@ -216,7 +231,7 @@ async def authenticate_user(organization:str, email: str, password: str) -> Opti
         return None
 
 
-async def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
+async def get_user_by_email(email: str, organization: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """
     Get user data by email
 
@@ -233,7 +248,7 @@ async def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
 
     try:
         # Query users collection for the email within the organization
-        users_ref = get_users_collection(db)
+        users_ref = get_users_collection(db, organization)
         if users_ref is None:
             return None
         query = users_ref.where('email', '==', email).limit(1)
@@ -257,7 +272,7 @@ async def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-async def create_password_reset_token(email: str) -> Optional[str]:
+async def create_password_reset_token(email: str, organization: Optional[str] = None) -> Optional[str]:
     """
     Create a password reset token for a user
 
@@ -267,7 +282,7 @@ async def create_password_reset_token(email: str) -> Optional[str]:
     Returns:
         Reset token string if user exists, None otherwise
     """
-    user = await get_user_by_email(email)
+    user = await get_user_by_email(email, organization)
 
     if not user:
         return None
@@ -282,7 +297,7 @@ async def create_password_reset_token(email: str) -> Optional[str]:
 
     try:
         # Store in password_resets subcollection within the organization
-        org_ref = get_organization_ref(db)
+        org_ref = get_organization_ref(db, organization)
         if org_ref is None:
             return None
         resets_ref = org_ref.collection(PASSWORD_RESETS_SUBCOLLECTION)

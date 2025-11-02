@@ -164,7 +164,7 @@ class ProcessRequest(BaseModel):
 # --------- Authentication Models ---------
 
 class LoginRequest(BaseModel):
-    organization: str = Field(..., description="User's organization name")
+    organization: str = Field(..., description="Organization identifier for the user")
     email: str = Field(..., description="User's email address")
     password: str = Field(..., description="User's password")
 
@@ -176,6 +176,8 @@ class LoginResponse(BaseModel):
 
 class RecoverPasswordRequest(BaseModel):
     email: str = Field(..., description="Email address to send recovery link to")
+    organization: Optional[str] = Field(None, description="Organization identifier for the user")
+
 
 
 # --------- Helpers ---------
@@ -309,7 +311,14 @@ async def login(credentials: LoginRequest):
     Authenticate user with email and password.
     Returns a JWT token to be set in a cookie on the frontend.
     """
-    user = await authenticate_user(credentials.organization, credentials.email, credentials.password)
+
+    user = await authenticate_user(
+        credentials.organization,
+        credentials.email,
+        credentials.password
+    )
+
+    print(user)
 
     if not user:
         raise HTTPException(
@@ -320,7 +329,8 @@ async def login(credentials: LoginRequest):
     # Create JWT token
     token_data = {
         "sub": user.get("id"),
-        "email": user.get("email")
+        "email": user.get("email"),
+        "organization": user.get("organization")
     }
     access_token = create_access_token(token_data)
 
@@ -337,8 +347,10 @@ async def recover_password(request: RecoverPasswordRequest):
     Returns success even if user doesn't exist (security best practice).
     """
     # Create reset token (returns None if user doesn't exist)
-    reset_token = await create_password_reset_token(request.email)
-
+    reset_token = await create_password_reset_token(
+        request.email,
+        request.organization
+    )
     # Only send email if user exists
     if reset_token:
         await send_password_reset_email(request.email, reset_token)

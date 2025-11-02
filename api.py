@@ -46,6 +46,14 @@ from transformation_logs import (
     get_transformation_logs,
     get_transformation_stats
 )
+from templates_manager import (
+    create_template,
+    get_template,
+    update_template,
+    delete_template,
+    list_user_templates,
+    template_exists
+)
 
 UPLOAD_DIR = pathlib.Path("uploads")
 TEMPLATES_DIR = pathlib.Path("templates")
@@ -256,29 +264,43 @@ def _compile_grid_to_instructions(gt: GridTemplate) -> Dict[str, str]:
     return {"extract_instr": extract_instr, "transform_instr": transform_instr}
 
 
-def _save_template(gt: GridTemplate):
-    path = TEMPLATES_DIR / f"{gt.id}.grid.json"
-    # v2: serializamos así (soporta acentos con ensure_ascii=False)
-    payload = json.dumps(gt.model_dump(), ensure_ascii=False, indent=2)
-    path.write_text(payload, encoding="utf-8")
+async def _save_template(user_id: str, gt: GridTemplate):
+    """Guarda plantilla en Firestore para el usuario especificado"""
+    columns_serialized = [col.model_dump() for col in gt.columns]
+    await create_template(
+        user_id=user_id,
+        template_id=gt.id,
+        name=gt.name,
+        description=gt.description or "",
+        columns=columns_serialized
+    )
 
 
-def _load_template_grid(tid: str) -> GridTemplate:
-    path = TEMPLATES_DIR / f"{tid}.grid.json"
-    if not path.exists():
+async def _load_template_grid(user_id: str, tid: str) -> GridTemplate:
+    """Carga plantilla desde Firestore"""
+    template_data = await get_template(user_id, tid)
+    if not template_data:
         raise HTTPException(404, f"Plantilla '{tid}' no encontrada")
-    data = json.loads(path.read_text(encoding="utf-8"))
-    return GridTemplate(**data)
+
+    # Reconstruir GridTemplate desde los datos de Firestore
+    return GridTemplate(
+        id=template_data["id"],
+        name=template_data["name"],
+        description=template_data.get("description", ""),
+        columns=[GridColumn(**col) for col in template_data["columns"]]
+    )
 
 
-def _list_template_meta() -> List[TemplateMeta]:
+async def _list_template_meta(user_id: str) -> List[TemplateMeta]:
+    """Lista metadatos de plantillas desde Firestore"""
+    templates = await list_user_templates(user_id)
     metas = []
-    for p in TEMPLATES_DIR.glob("*.grid.json"):
-        try:
-            d = json.loads(p.read_text(encoding="utf-8"))
-            metas.append(TemplateMeta(id=d["id"], name=d["name"], description=d.get("description", "")))
-        except Exception:
-            continue
+    for t in templates:
+        metas.append(TemplateMeta(
+            id=t["id"],
+            name=t["name"],
+            description=t.get("description", "")
+        ))
     return metas
 
 
@@ -417,7 +439,7 @@ async def process_document_with_template(
 
     try:
         # 2) Cargar plantilla y obtener información
-        gtpl = _load_template_grid(template_id)
+        gtpl = await _load_template_grid(user_id, template_id)
         template_name = gtpl.name if hasattr(gtpl, 'name') else template_id
 
         # Contar campos totales de la plantilla
@@ -992,25 +1014,37 @@ async def telegram_webhook(request: Request):
 
 # Plantillas (grid)
 @app.get("/templates", response_model=List[TemplateMeta])
-def list_templates():
-    return _list_template_meta()
+async def list_templates(user_id: str = Depends(get_current_user)):
+    """Lista todas las plantillas del usuario autenticado"""
+    return await _list_template_meta(user_id)
 
 
 @app.get("/templates/{tid}", response_model=GridTemplate)
-def get_template(tid: str):
-    return _load_template_grid(tid)
+async def get_template_endpoint(tid: str, user_id: str = Depends(get_current_user)):
+    """Obtiene una plantilla específica del usuario autenticado"""
+    return await _load_template_grid(user_id, tid)
 
 
 @app.post("/templates", response_model=GridTemplate, summary="Crear/Actualizar plantilla desde el front (grid)")
-def upsert_template(gt: GridTemplate):
-    _save_template(gt)
+async def upsert_template(gt: GridTemplate, user_id: str = Depends(get_current_user)):
+    """Crea o actualiza una plantilla para el usuario autenticado"""
+    await _save_template(user_id, gt)
     return gt
+
+
+@app.delete("/templates/{tid}")
+async def delete_template_endpoint(tid: str, user_id: str = Depends(get_current_user)):
+    """Elimina una plantilla del usuario autenticado"""
+    success = await delete_template(user_id, tid)
+    if not success:
+        raise HTTPException(404, f"Plantilla '{tid}' no encontrada")
+    return {"message": "Plantilla eliminada exitosamente", "template_id": tid}
 
 
 # Proceso
 @app.post("/process")
 async def process(req: ProcessRequest, user_id: str = Depends(get_current_user)):
-    gtpl = _load_template_grid(req.template_id)
+    gtpl = await _load_template_grid(user_id, req.template_id)
     compiled = _compile_grid_to_instructions(gtpl)
     extract_instr = compiled["extract_instr"]
     transform_instr = compiled["transform_instr"]

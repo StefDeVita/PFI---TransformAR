@@ -8,10 +8,10 @@ from typing import Optional, Dict, Any, List
 from datetime import datetime
 from firebase_admin import firestore
 
+from auth import get_db, get_user_document, get_users_collection
 
 def _get_db():
     """Obtiene la instancia de Firestore con lazy initialization"""
-    from auth import get_db
     return get_db()
 
 
@@ -33,7 +33,7 @@ async def save_whatsapp_message(
         True si se guardó exitosamente
 
     Estructura del mensaje en Firestore:
-    users/{user_id}/whatsapp_messages/{message_id}
+    organization/{organizationId}/users/{user_id}/whatsapp_messages/{message_id}
     {
         "message_id": "wamid.xxx",
         "sender": {
@@ -76,8 +76,12 @@ async def save_whatsapp_message(
             print("[WhatsApp Messages] Error: Mensaje sin id o from")
             return False
 
-        # Referencia a la colección de mensajes del usuario
-        messages_ref = db.collection("users").document(user_id).collection("whatsapp_messages")
+        # Referencia a la colección de mensajes del usuario dentro de la organización
+        user_doc = get_user_document(user_id, db)
+        if user_doc is None:
+            print(f"[WhatsApp Messages] Error: Usuario {user_id} no encontrado en la organización configurada")
+            return False
+        messages_ref = user_doc.collection("whatsapp_messages")
 
         # Preparar datos básicos del mensaje
         message_doc = {
@@ -207,7 +211,10 @@ async def cleanup_old_messages(user_id: str, max_messages: int = 10):
         if not db:
             return
 
-        messages_ref = db.collection("users").document(user_id).collection("whatsapp_messages")
+        user_doc = get_user_document(user_id, db)
+        if user_doc is None:
+            return
+        messages_ref = user_doc.collection("whatsapp_messages")
 
         # Obtener todos los mensajes ordenados por timestamp descendente
         docs = messages_ref.order_by("timestamp", direction=firestore.Query.DESCENDING).stream()
@@ -268,8 +275,11 @@ async def get_whatsapp_messages(
             print("[WhatsApp Messages] Error: Firestore no está inicializado")
             return []
 
-        messages_ref = db.collection("users").document(user_id).collection("whatsapp_messages")
-
+        user_doc = get_user_document(user_id, db)
+        if user_doc is None:
+            return []
+        messages_ref = user_doc.collection("whatsapp_messages")
+        
         # Obtener mensajes ordenados por timestamp descendente
         docs = messages_ref.order_by("timestamp", direction=firestore.Query.DESCENDING).limit(limit).stream()
 
@@ -338,7 +348,9 @@ async def find_user_by_whatsapp_number(phone_number: str) -> Optional[str]:
         normalized_input = re.sub(r'[^\d]', '', phone_number)
 
         # Buscar en todas las credenciales de WhatsApp
-        users_ref = db.collection("users")
+        users_ref = get_users_collection(db)
+        if users_ref is None:
+            return None
         users = users_ref.stream()
 
         for user_doc in users:

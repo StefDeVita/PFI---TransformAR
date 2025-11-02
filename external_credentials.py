@@ -5,16 +5,15 @@ Soporta: Gmail, Outlook, WhatsApp, Telegram
 
 from typing import Optional, Dict, Any, Literal
 from datetime import datetime
-import firebase_admin
 from firebase_admin import firestore
 from pydantic import BaseModel
 import os
 
+from auth import get_db, get_user_document
 
 # No inicializar al importar, usar lazy initialization
 def _get_db():
     """Obtiene la instancia de Firestore con lazy initialization"""
-    from auth import get_db
     return get_db()
 
 
@@ -37,9 +36,11 @@ class ExternalCredentialsManager:
     @staticmethod
     def _get_credential_ref(user_id: str, service: ServiceType):
         """Obtiene referencia al documento de credencial"""
-        return _get_db().collection("users").document(user_id).collection(
-            ExternalCredentialsManager.COLLECTION
-        ).document(service)
+        db = _get_db()
+        user_doc = get_user_document(user_id, db)
+        if user_doc is None:
+            return None
+        return user_doc.collection(ExternalCredentialsManager.COLLECTION).document(service)
 
     @staticmethod
     async def save_credential(
@@ -62,7 +63,9 @@ class ExternalCredentialsManager:
         """
         try:
             ref = ExternalCredentialsManager._get_credential_ref(user_id, service)
-
+            if ref is None:
+                return False
+            
             data = {
                 "service": service,
                 "connected_at": firestore.SERVER_TIMESTAMP,
@@ -96,6 +99,8 @@ class ExternalCredentialsManager:
         """
         try:
             ref = ExternalCredentialsManager._get_credential_ref(user_id, service)
+            if ref is None:
+                return None
             doc = ref.get()
 
             if doc.exists:
@@ -125,6 +130,8 @@ class ExternalCredentialsManager:
         """
         try:
             ref = ExternalCredentialsManager._get_credential_ref(user_id, service)
+            if ref is None:
+                return False
             ref.delete()
             print(f"[ExternalCredentials] Credencial {service} eliminada para usuario {user_id}")
             return True
@@ -145,9 +152,11 @@ class ExternalCredentialsManager:
             Diccionario con {service: credential_data}
         """
         try:
-            collection_ref = _get_db().collection("users").document(user_id).collection(
-                ExternalCredentialsManager.COLLECTION
-            )
+            db = _get_db()
+            user_doc = get_user_document(user_id, db)
+            if user_doc is None:
+                return {}
+            collection_ref = user_doc.collection(ExternalCredentialsManager.COLLECTION)
 
             docs = collection_ref.stream()
 

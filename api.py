@@ -164,6 +164,7 @@ class ProcessRequest(BaseModel):
 # --------- Authentication Models ---------
 
 class LoginRequest(BaseModel):
+    organization: str = Field(..., description="User's organization name")
     email: str = Field(..., description="User's email address")
     password: str = Field(..., description="User's password")
 
@@ -308,7 +309,7 @@ async def login(credentials: LoginRequest):
     Authenticate user with email and password.
     Returns a JWT token to be set in a cookie on the frontend.
     """
-    user = await authenticate_user(credentials.email, credentials.password)
+    user = await authenticate_user(credentials.organization, credentials.email, credentials.password)
 
     if not user:
         raise HTTPException(

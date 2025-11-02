@@ -9,7 +9,7 @@ Este módulo permite:
 - Mantener límite de logs por usuario
 
 Estructura en Firestore:
-users/{userId}/transformation_logs/{logId}
+organization/{organizationId}/users/{userId}/transformation_logs/{logId}
 """
 
 from __future__ import annotations
@@ -18,14 +18,13 @@ import uuid
 import time
 from datetime import datetime
 from typing import Dict, Any, List, Optional
-import firebase_admin
 from firebase_admin import firestore
 
+from auth import get_db, get_user_document
 
 # No inicializar al importar, usar lazy initialization
 def _get_db():
     """Obtiene la instancia de Firestore con lazy initialization"""
-    from auth import get_db
     return get_db()
 
 
@@ -81,8 +80,10 @@ async def create_transformation_log(
 
         # Guardar en Firestore
         db = _get_db()
-        db = _get_db()
-        doc_ref = db.collection("users").document(user_id).collection("transformation_logs").document(log_id)
+        user_doc = get_user_document(user_id, db)
+        if user_doc is None:
+            raise ValueError(f"Usuario {user_id} no encontrado en la organización configurada")
+        doc_ref = user_doc.collection("transformation_logs").document(log_id)
         doc_ref.set(log_data)
 
         print(f"[TransformationLog] Log creado: {log_id} para usuario {user_id}")
@@ -119,8 +120,10 @@ async def update_transformation_log(
     """
     try:
         db = _get_db()
-        db = _get_db()
-        doc_ref = db.collection("users").document(user_id).collection("transformation_logs").document(log_id)
+        user_doc = get_user_document(user_id, db)
+        if user_doc is None:
+            return False
+        doc_ref = user_doc.collection("transformation_logs").document(log_id)
 
         update_data = {
             "updated_at": firestore.SERVER_TIMESTAMP
@@ -162,7 +165,10 @@ async def complete_transformation_log(
     """
     try:
         db = _get_db()
-        doc_ref = db.collection("users").document(user_id).collection("transformation_logs").document(log_id)
+        user_doc = get_user_document(user_id, db)
+        if user_doc is None:
+            return False
+        doc_ref = user_doc.collection("transformation_logs").document(log_id)
 
         # Obtener datos actuales para calcular duración
         doc = doc_ref.get()
@@ -236,7 +242,10 @@ async def fail_transformation_log(
     """
     try:
         db = _get_db()
-        doc_ref = db.collection("users").document(user_id).collection("transformation_logs").document(log_id)
+        user_doc = get_user_document(user_id, db)
+        if user_doc is None:
+            return False
+        doc_ref = user_doc.collection("transformation_logs").document(log_id)
 
         # Obtener datos actuales para calcular duración
         doc = doc_ref.get()
@@ -305,10 +314,12 @@ async def get_transformation_logs(
     """
     try:
         db = _get_db()
+        user_doc = get_user_document(user_id, db)
+        if user_doc is None:
+            return []
+        
         query = (
-            db.collection("users")
-            .document(user_id)
-            .collection("transformation_logs")
+            user_doc.collection("transformation_logs")
             .order_by("created_at", direction=firestore.Query.DESCENDING)
             .limit(limit)
         )
@@ -345,11 +356,13 @@ async def cleanup_old_logs(user_id: str, max_logs: int = 100) -> bool:
     """
     try:
         db = _get_db()
+        user_doc = get_user_document(user_id, db)
+        if user_doc is None:
+            return False
+        
         # Obtener todos los logs ordenados por fecha
         query = (
-            db.collection("users")
-            .document(user_id)
-            .collection("transformation_logs")
+            user_doc.collection("transformation_logs")
             .order_by("created_at", direction=firestore.Query.DESCENDING)
         )
 
@@ -391,8 +404,17 @@ async def get_transformation_stats(user_id: str) -> Dict[str, Any]:
     """
     try:
         db = _get_db()
-        query = db.collection("users").document(user_id).collection("transformation_logs")
-
+        user_doc = get_user_document(user_id, db)
+        if user_doc is None:
+            return {
+                "total": 0,
+                "completed": 0,
+                "failed": 0,
+                "processing": 0,
+                "queued": 0,
+                "successRate": 0
+            }
+        query = user_doc.collection("transformation_logs")
         all_docs = list(query.stream())
 
         stats = {

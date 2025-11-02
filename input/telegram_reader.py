@@ -365,14 +365,22 @@ def get_message_content(client: TelegramClient, message_data: Dict[str, Any]) ->
     """
     out = {"text": "", "attachments": []}
 
+    # Logging para diagnosticar
+    print(f"[Telegram] get_message_content llamado")
+    print(f"[Telegram] message_data keys: {list(message_data.keys())}")
+    print(f"[Telegram] message_data: {message_data}")
+
     try:
         # Extraer texto
         if "text" in message_data:
             out["text"] = message_data["text"]
+            print(f"[Telegram] Texto extraído: {out['text']}")
         elif "caption" in message_data:
             out["text"] = message_data["caption"]
+            print(f"[Telegram] Caption extraído: {out['text']}")
 
         msg_type = _get_message_type(message_data)
+        print(f"[Telegram] Tipo de mensaje detectado: {msg_type}")
 
         # Descargar documento
         if msg_type == "document" and "document" in message_data:
@@ -506,9 +514,14 @@ def _get_message_type(msg: Dict[str, Any]) -> str:
     Returns:
         Tipo de mensaje: "text", "document", "photo", "video", "audio", "voice", "sticker", "other"
     """
-    if "text" in msg:
-        return "text"
-    elif "document" in msg:
+    # Si ya tiene un campo "type" explícito, usarlo (viene de list_messages_telegram)
+    if "type" in msg:
+        return msg["type"]
+
+    # Detectar tipo basado en campos presentes
+    # IMPORTANTE: Verificar media types ANTES de text, porque los mensajes de media
+    # pueden tener campo "text" vacío pero también campo de media (document, photo, etc.)
+    if "document" in msg:
         return "document"
     elif "photo" in msg:
         return "photo"
@@ -524,6 +537,8 @@ def _get_message_type(msg: Dict[str, Any]) -> str:
         return "location"
     elif "contact" in msg:
         return "contact"
+    elif "text" in msg:
+        return "text"
     else:
         return "other"
 

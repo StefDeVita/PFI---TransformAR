@@ -9,7 +9,7 @@ import smtplib
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -348,3 +348,185 @@ async def send_password_reset_email(email: str, reset_token: str) -> bool:
     except Exception as e:
         print(f"Error sending email: {e}")
         return False
+
+
+# ============================================================================
+# User Management Functions (con organizaciones)
+# ============================================================================
+
+async def create_user(
+    email: str,
+    password: str,
+    name: str,
+    organization_id: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Crea un nuevo usuario en la colección users.
+
+    Args:
+        email: Correo electrónico del usuario
+        password: Contraseña en texto plano
+        name: Nombre completo del usuario
+        organization_id: ID de la organización a la que pertenece
+
+    Returns:
+        Datos del usuario creado o None si falla
+    """
+    db = get_db()
+
+    if db is None:
+        return None
+
+    try:
+        # Verificar que el email no exista
+        existing_user = await get_user_by_email(email)
+        if existing_user:
+            print(f"[Auth] Usuario con email {email} ya existe")
+            return None
+
+        # Crear documento de usuario
+        users_ref = db.collection('users')
+        user_doc_ref = users_ref.document()  # Genera ID automático
+
+        user_data = {
+            "id": user_doc_ref.id,
+            "name": name,
+            "email": email,
+            "password": password,  # En producción, considerar hashear
+            "organization": organization_id,  # Referencia a organización
+            "created_at": firestore.SERVER_TIMESTAMP,
+            "updated_at": firestore.SERVER_TIMESTAMP
+        }
+
+        user_doc_ref.set(user_data)
+
+        print(f"[Auth] Usuario creado: {user_doc_ref.id} - {email}")
+
+        # Agregar usuario a la organización
+        from organizations import add_user_to_organization
+        await add_user_to_organization(organization_id, user_doc_ref.id)
+
+        # Eliminar password antes de retornar
+        user_data_response = user_data.copy()
+        user_data_response.pop('password', None)
+
+        return user_data_response
+
+    except Exception as e:
+        print(f"[Auth] Error creando usuario: {e}")
+        return None
+
+
+async def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Obtiene datos de un usuario por su ID.
+
+    Args:
+        user_id: ID del usuario
+
+    Returns:
+        Datos del usuario o None si no existe
+    """
+    db = get_db()
+
+    if db is None:
+        return None
+
+    try:
+        user_doc = db.collection('users').document(user_id).get()
+
+        if not user_doc.exists:
+            return None
+
+        user_data = user_doc.to_dict()
+        user_data['id'] = user_doc.id
+
+        # Eliminar password
+        user_data.pop('password', None)
+
+        return user_data
+
+    except Exception as e:
+        print(f"[Auth] Error obteniendo usuario {user_id}: {e}")
+        return None
+
+
+async def update_user(
+    user_id: str,
+    name: Optional[str] = None,
+    email: Optional[str] = None,
+    organization_id: Optional[str] = None
+) -> bool:
+    """
+    Actualiza datos de un usuario.
+
+    Args:
+        user_id: ID del usuario
+        name: Nuevo nombre (opcional)
+        email: Nuevo email (opcional)
+        organization_id: Nueva organización (opcional)
+
+    Returns:
+        True si se actualizó correctamente
+    """
+    db = get_db()
+
+    if db is None:
+        return False
+
+    try:
+        user_ref = db.collection('users').document(user_id)
+
+        update_data = {
+            "updated_at": firestore.SERVER_TIMESTAMP
+        }
+
+        if name is not None:
+            update_data["name"] = name
+        if email is not None:
+            update_data["email"] = email
+        if organization_id is not None:
+            update_data["organization"] = organization_id
+
+        user_ref.update(update_data)
+        print(f"[Auth] Usuario actualizado: {user_id}")
+        return True
+
+    except Exception as e:
+        print(f"[Auth] Error actualizando usuario {user_id}: {e}")
+        return False
+
+
+async def get_users_by_organization(organization_id: str) -> List[Dict[str, Any]]:
+    """
+    Obtiene todos los usuarios de una organización.
+
+    Args:
+        organization_id: ID de la organización
+
+    Returns:
+        Lista de usuarios
+    """
+    db = get_db()
+
+    if db is None:
+        return []
+
+    try:
+        users_ref = db.collection('users')
+        query = users_ref.where('organization', '==', organization_id)
+        docs = query.stream()
+
+        users = []
+        for doc in docs:
+            user_data = doc.to_dict()
+            user_data['id'] = doc.id
+            user_data.pop('password', None)
+            users.append(user_data)
+
+        print(f"[Auth] Obtenidos {len(users)} usuarios de organización {organization_id}")
+        return users
+
+    except Exception as e:
+        print(f"[Auth] Error obteniendo usuarios de organización: {e}")
+        return []

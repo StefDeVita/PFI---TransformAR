@@ -351,15 +351,14 @@ async def send_password_reset_email(email: str, reset_token: str) -> bool:
 
 
 # ============================================================================
-# User Management Functions (con organizaciones y roles)
+# User Management Functions (con organizaciones)
 # ============================================================================
 
 async def create_user(
     email: str,
     password: str,
     name: str,
-    organization_id: str,
-    role: str = "user"
+    organization_id: str
 ) -> Optional[Dict[str, Any]]:
     """
     Crea un nuevo usuario en la colección users.
@@ -369,7 +368,6 @@ async def create_user(
         password: Contraseña en texto plano
         name: Nombre completo del usuario
         organization_id: ID de la organización a la que pertenece
-        role: Rol del usuario (admin o user), default: user
 
     Returns:
         Datos del usuario creado o None si falla
@@ -395,7 +393,6 @@ async def create_user(
             "name": name,
             "email": email,
             "password": password,  # En producción, considerar hashear
-            "role": role if role in ["admin", "user"] else "user",
             "organization": organization_id,  # Referencia a organización
             "created_at": firestore.SERVER_TIMESTAMP,
             "updated_at": firestore.SERVER_TIMESTAMP
@@ -458,7 +455,6 @@ async def update_user(
     user_id: str,
     name: Optional[str] = None,
     email: Optional[str] = None,
-    role: Optional[str] = None,
     organization_id: Optional[str] = None
 ) -> bool:
     """
@@ -468,7 +464,6 @@ async def update_user(
         user_id: ID del usuario
         name: Nuevo nombre (opcional)
         email: Nuevo email (opcional)
-        role: Nuevo rol (opcional)
         organization_id: Nueva organización (opcional)
 
     Returns:
@@ -490,8 +485,6 @@ async def update_user(
             update_data["name"] = name
         if email is not None:
             update_data["email"] = email
-        if role is not None and role in ["admin", "user"]:
-            update_data["role"] = role
         if organization_id is not None:
             update_data["organization"] = organization_id
 

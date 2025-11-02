@@ -38,6 +38,14 @@ from auth import authenticate_user, create_access_token, create_password_reset_t
 from integrations_routes import router as integrations_router
 from external_credentials import ExternalCredentialsManager
 from whatsapp_messages import save_whatsapp_message, get_whatsapp_messages, find_user_by_whatsapp_number
+from transformation_logs import (
+    create_transformation_log,
+    update_transformation_log,
+    complete_transformation_log,
+    fail_transformation_log,
+    get_transformation_logs,
+    get_transformation_stats
+)
 
 UPLOAD_DIR = pathlib.Path("uploads")
 TEMPLATES_DIR = pathlib.Path("templates")
@@ -345,8 +353,12 @@ async def recover_password(request: RecoverPasswordRequest):
 @app.post("/process/document", summary="Sube un archivo, lo procesa con una plantilla y lo descarta")
 async def process_document_with_template(
         template_id: str = Form(...),
-        file: UploadFile = File(...)
+        file: UploadFile = File(...),
+        user_id: str = Depends(get_current_user)
 ):
+    log_id = None  # Para tracking del log
+    file_type = "document"  # Default
+
     # 1) leer el archivo en un tmp file
     content = await file.read()
 
@@ -354,7 +366,7 @@ async def process_document_with_template(
     if not content:
         raise HTTPException(400, "El archivo está vacío")
 
-    print(f"[Process Document] Archivo recibido: {file.filename}, tamaño: {len(content)} bytes")
+    print(f"[Process Document] Archivo recibido: {file.filename}, tamaño: {len(content)} bytes, user: {user_id}")
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{file.filename}", mode='wb') as tmp:
         tmp.write(content)
@@ -376,7 +388,7 @@ async def process_document_with_template(
             pass
         raise HTTPException(500, "El archivo temporal está vacío después de escribirlo")
 
-    # Validar que sea un PDF válido (verificar header)
+    # Validar tipo de archivo (verificar header)
     try:
         with open(tmp_path, 'rb') as f:
                 # --- Validar tipo de archivo ---
@@ -385,9 +397,9 @@ async def process_document_with_template(
                 if header.startswith(b'%PDF-'):
                     file_type = "pdf"
                 elif header.startswith(b'\x89PNG'):
-                    file_type = "png"
+                    file_type = "image"
                 elif header.startswith(b'\xFF\xD8\xFF'):
-                    file_type = "jpeg"
+                    file_type = "image"
                 else:
                     raise HTTPException(400, f"Tipo de archivo no soportado. Solo se admiten PDF, PNG o JPG.")
 
@@ -396,7 +408,7 @@ async def process_document_with_template(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[Process Document] Error validando PDF: {e}")
+        print(f"[Process Document] Error validando archivo: {e}")
         try:
             pathlib.Path(tmp_path).unlink(missing_ok=True)
         except:
@@ -404,28 +416,85 @@ async def process_document_with_template(
         raise HTTPException(500, f"Error validando archivo: {str(e)}")
 
     try:
-        # 2) cargar plantilla y compilar instrucciones
+        # 2) Cargar plantilla y obtener información
         gtpl = _load_template_grid(template_id)
+        template_name = gtpl.name if hasattr(gtpl, 'name') else template_id
+
+        # Contar campos totales de la plantilla
+        total_fields = len(gtpl.columns) if hasattr(gtpl, 'columns') else 0
+
+        # 3) Crear log de transformación
+        log_id = await create_transformation_log(
+            user_id=user_id,
+            file_name=file.filename or "documento_sin_nombre",
+            file_type=file_type,
+            template_id=template_id,
+            template_name=template_name,
+            total_fields=total_fields
+        )
+        print(f"[Process Document] Log de transformación creado: {log_id}")
+
+        # 4) Compilar instrucciones
+        await update_transformation_log(user_id, log_id, progress=20, status="processing")
         compiled = _compile_grid_to_instructions(gtpl)
         extract_instr = compiled["extract_instr"]
         transform_instr = compiled["transform_instr"]
 
-        # 3) ejecutar pipeline sobre el tmp file
+        # 5) Ejecutar pipeline sobre el tmp file
         print(f"[Process Document] Procesando archivo con Docling...")
+        await update_transformation_log(user_id, log_id, progress=40, status="processing")
+
         result = _pipeline_from_file(pathlib.Path(tmp_path), extract_instr, transform_instr)
+
+        # 6) Contar campos extraídos exitosamente
+        # _pipeline_from_file retorna una lista de diccionarios
+        extracted_fields = 0
+        extracted_data = None
+
+        if result and isinstance(result, list) and len(result) > 0:
+            # Tomar el primer elemento de la lista
+            extracted_data = result[0] if isinstance(result[0], dict) else None
+            if extracted_data:
+                # Contar campos no vacíos
+                extracted_fields = sum(1 for v in extracted_data.values() if v)
+        elif result and isinstance(result, dict):
+            # Si por alguna razón retorna un dict directamente
+            extracted_data = result.get("data", result)
+            if isinstance(extracted_data, dict):
+                extracted_fields = sum(1 for v in extracted_data.values() if v)
+
+        # 7) Marcar transformación como completada
+        await complete_transformation_log(
+            user_id=user_id,
+            log_id=log_id,
+            extracted_fields=extracted_fields,
+            extracted_data=extracted_data
+        )
+
+        print(f"[Process Document] Transformación completada: {log_id}, campos: {extracted_fields}/{total_fields}")
 
         return {
             "template_id": template_id,
             "compiled": compiled,
-            "result": result
+            "result": result,
+            "log_id": log_id  # Retornar log_id para referencia
         }
     except Exception as e:
         print(f"[Process Document] Error procesando documento: {e}")
         import traceback
         traceback.print_exc()
+
+        # Marcar transformación como fallida
+        if log_id:
+            await fail_transformation_log(
+                user_id=user_id,
+                log_id=log_id,
+                error_message=str(e)
+            )
+
         raise
     finally:
-        # 4) borrar archivo temporal
+        # 8) Borrar archivo temporal
         try:
             pathlib.Path(tmp_path).unlink(missing_ok=True)
             print(f"[Process Document] Archivo temporal eliminado: {tmp_path}")
@@ -1064,3 +1133,94 @@ async def process(req: ProcessRequest, user_id: str = Depends(get_current_user))
 
     result = _pipeline_from_text(text, extract_instr, transform_instr)
     return {"result": result, "compiled": compiled}
+
+
+# ============================================================================
+# Endpoints de Logs de Transformaciones
+# ============================================================================
+
+@app.get("/logs/transformations")
+async def get_user_transformation_logs(
+    user_id: str = Depends(get_current_user),
+    limit: int = Query(50, ge=1, le=200),
+    status: Optional[str] = Query(None, description="Filtrar por estado: completed, failed, processing, queued")
+):
+    """
+    Obtiene el historial de transformaciones del usuario autenticado.
+
+    Args:
+        user_id: ID del usuario autenticado (automático)
+        limit: Número máximo de logs a retornar (1-200)
+        status: Filtrar por estado específico (opcional)
+
+    Returns:
+        Lista de transformaciones con su información completa
+
+    Ejemplo de respuesta:
+    {
+        "logs": [
+            {
+                "id": "abc-123",
+                "fileName": "documento.pdf",
+                "fileType": "pdf",
+                "status": "completed",
+                "progress": 100,
+                "startTime": "2024-01-20T14:30:00",
+                "endTime": "2024-01-20T14:32:15",
+                "duration": "2m 15s",
+                "extractedFields": 12,
+                "totalFields": 12,
+                "template": "Facturación Clientes"
+            }
+        ]
+    }
+    """
+    try:
+        logs = await get_transformation_logs(
+            user_id=user_id,
+            limit=limit,
+            status_filter=status
+        )
+
+        return {"logs": logs}
+
+    except Exception as e:
+        print(f"[Logs API] Error obteniendo logs: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(500, f"Error obteniendo historial de transformaciones: {str(e)}")
+
+
+@app.get("/logs/transformations/stats")
+async def get_user_transformation_stats(user_id: str = Depends(get_current_user)):
+    """
+    Obtiene estadísticas de transformaciones del usuario autenticado.
+
+    Args:
+        user_id: ID del usuario autenticado (automático)
+
+    Returns:
+        Estadísticas agregadas de transformaciones
+
+    Ejemplo de respuesta:
+    {
+        "stats": {
+            "total": 50,
+            "completed": 45,
+            "failed": 3,
+            "processing": 1,
+            "queued": 1,
+            "successRate": 93
+        }
+    }
+    """
+    try:
+        stats = await get_transformation_stats(user_id=user_id)
+
+        return {"stats": stats}
+
+    except Exception as e:
+        print(f"[Logs API] Error obteniendo estadísticas: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(500, f"Error obteniendo estadísticas: {str(e)}")

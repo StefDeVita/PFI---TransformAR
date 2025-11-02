@@ -18,10 +18,15 @@ import uuid
 import time
 from datetime import datetime
 from typing import Dict, Any, List, Optional
-from google.cloud import firestore
+import firebase_admin
+from firebase_admin import firestore
 
-# Inicializar cliente de Firestore
-db = firestore.Client()
+
+# No inicializar al importar, usar lazy initialization
+def _get_db():
+    """Obtiene la instancia de Firestore con lazy initialization"""
+    from auth import get_db
+    return get_db()
 
 
 async def create_transformation_log(
@@ -75,6 +80,8 @@ async def create_transformation_log(
             log_data["template"] = template_name
 
         # Guardar en Firestore
+        db = _get_db()
+        db = _get_db()
         doc_ref = db.collection("users").document(user_id).collection("transformation_logs").document(log_id)
         doc_ref.set(log_data)
 
@@ -111,6 +118,8 @@ async def update_transformation_log(
         True si se actualizó correctamente
     """
     try:
+        db = _get_db()
+        db = _get_db()
         doc_ref = db.collection("users").document(user_id).collection("transformation_logs").document(log_id)
 
         update_data = {
@@ -152,6 +161,7 @@ async def complete_transformation_log(
         True si se actualizó correctamente
     """
     try:
+        db = _get_db()
         doc_ref = db.collection("users").document(user_id).collection("transformation_logs").document(log_id)
 
         # Obtener datos actuales para calcular duración
@@ -225,6 +235,7 @@ async def fail_transformation_log(
         True si se actualizó correctamente
     """
     try:
+        db = _get_db()
         doc_ref = db.collection("users").document(user_id).collection("transformation_logs").document(log_id)
 
         # Obtener datos actuales para calcular duración
@@ -293,6 +304,7 @@ async def get_transformation_logs(
         Lista de logs ordenados por fecha (más recientes primero)
     """
     try:
+        db = _get_db()
         query = (
             db.collection("users")
             .document(user_id)
@@ -332,6 +344,7 @@ async def cleanup_old_logs(user_id: str, max_logs: int = 100) -> bool:
         True si se eliminaron logs
     """
     try:
+        db = _get_db()
         # Obtener todos los logs ordenados por fecha
         query = (
             db.collection("users")
@@ -377,6 +390,7 @@ async def get_transformation_stats(user_id: str) -> Dict[str, Any]:
         - successRate: Tasa de éxito (%)
     """
     try:
+        db = _get_db()
         query = db.collection("users").document(user_id).collection("transformation_logs")
 
         all_docs = list(query.stream())

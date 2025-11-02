@@ -260,7 +260,7 @@ def list_messages_telegram(client: TelegramClient, limit: int = 10) -> List[Dict
         limit: Máximo número de mensajes a devolver
 
     Returns:
-        Lista de diccionarios con estructura:
+        Lista de diccionarios con estructura completa incluyendo attachments:
         [
             {
                 "id": "123",
@@ -268,7 +268,11 @@ def list_messages_telegram(client: TelegramClient, limit: int = 10) -> List[Dict
                 "from": {"id": 111, "username": "user", "first_name": "John"},
                 "text": "Hola, adjunto mi documento",
                 "type": "text|document|photo|video|audio",
-                "date": 1234567890
+                "date": 1234567890,
+                "document": {...},  // Si type == "document"
+                "photo": [...],     // Si type == "photo"
+                "video": {...},     // Si type == "video"
+                "audio": {...}      // Si type == "audio"
             }
         ]
     """
@@ -292,14 +296,42 @@ def list_messages_telegram(client: TelegramClient, limit: int = 10) -> List[Dict
         elif "caption" in msg:
             text = msg["caption"]
 
-        messages.append({
+        # Construir mensaje base
+        message = {
             "id": str(msg["message_id"]),
             "chat_id": msg["chat"]["id"],
             "from": msg.get("from", {}),
             "text": text,
             "type": msg_type,
             "date": msg.get("date", 0)
-        })
+        }
+
+        # Incluir información de attachments según el tipo
+        if msg_type == "document" and "document" in msg:
+            message["document"] = msg["document"]
+
+        elif msg_type == "photo" and "photo" in msg:
+            message["photo"] = msg["photo"]
+
+        elif msg_type == "video" and "video" in msg:
+            message["video"] = msg["video"]
+
+        elif msg_type == "audio" and "audio" in msg:
+            message["audio"] = msg["audio"]
+
+        elif msg_type == "voice" and "voice" in msg:
+            message["voice"] = msg["voice"]
+
+        elif msg_type == "sticker" and "sticker" in msg:
+            message["sticker"] = msg["sticker"]
+
+        elif msg_type == "location" and "location" in msg:
+            message["location"] = msg["location"]
+
+        elif msg_type == "contact" and "contact" in msg:
+            message["contact"] = msg["contact"]
+
+        messages.append(message)
 
     return messages
 

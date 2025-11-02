@@ -291,17 +291,18 @@ async def _load_template_grid(user_id: str, tid: str) -> GridTemplate:
     )
 
 
-async def _list_template_meta(user_id: str) -> List[TemplateMeta]:
-    """Lista metadatos de plantillas desde Firestore"""
+async def _list_template_meta(user_id: str) -> List[GridTemplate]:
+    """Lista plantillas completas desde Firestore incluyendo columnas"""
     templates = await list_user_templates(user_id)
-    metas = []
+    grid_templates = []
     for t in templates:
-        metas.append(TemplateMeta(
+        grid_templates.append(GridTemplate(
             id=t["id"],
             name=t["name"],
-            description=t.get("description", "")
+            description=t.get("description", ""),
+            columns=[GridColumn(**col) for col in t["columns"]]
         ))
-    return metas
+    return grid_templates
 
 
 def _pipeline_from_text(text: str, extract_instr: str, transform_instr: str) -> List[Dict[str, Any]]:
@@ -1013,9 +1014,9 @@ async def telegram_webhook(request: Request):
 
 
 # Plantillas (grid)
-@app.get("/templates", response_model=List[TemplateMeta])
+@app.get("/templates", response_model=List[GridTemplate])
 async def list_templates(user_id: str = Depends(get_current_user)):
-    """Lista todas las plantillas del usuario autenticado"""
+    """Lista todas las plantillas del usuario autenticado incluyendo columnas"""
     return await _list_template_meta(user_id)
 
 

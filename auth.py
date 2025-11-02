@@ -103,7 +103,7 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
 
 def verify_token(token: str) -> Optional[Dict[str, Any]]:
     """
-    Verify and decode a JWT token
+    Verify and decode a JWT toke
 
     Args:
         token: JWT token string
@@ -116,8 +116,24 @@ def verify_token(token: str) -> Optional[Dict[str, Any]]:
         return payload
     except jwt.ExpiredSignatureError:
         return None
-    except jwt.JWTError:
+    except jwt.PyJWTError:
         return None
+
+
+def decode_jwt_token(token: str) -> Optional[str]:
+    """
+    Decode JWT token and extract user ID
+
+    Args:
+        token: JWT token string
+
+    Returns:
+        User ID or None if invalid
+    """
+    payload = verify_token(token)
+    if payload:
+        return payload.get("sub")  # "sub" contiene el user ID
+    return None
 
 
 async def authenticate_user(email: str, password: str) -> Optional[Dict[str, Any]]:

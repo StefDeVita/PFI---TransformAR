@@ -447,18 +447,28 @@ async def process_document_with_template(
         result = _pipeline_from_file(pathlib.Path(tmp_path), extract_instr, transform_instr)
 
         # 6) Contar campos extraídos exitosamente
+        # _pipeline_from_file retorna una lista de diccionarios
         extracted_fields = 0
-        if result and isinstance(result, dict):
-            extracted_data = result.get("data", {})
-            # Contar campos no vacíos
-            extracted_fields = sum(1 for v in extracted_data.values() if v)
+        extracted_data = None
+
+        if result and isinstance(result, list) and len(result) > 0:
+            # Tomar el primer elemento de la lista
+            extracted_data = result[0] if isinstance(result[0], dict) else None
+            if extracted_data:
+                # Contar campos no vacíos
+                extracted_fields = sum(1 for v in extracted_data.values() if v)
+        elif result and isinstance(result, dict):
+            # Si por alguna razón retorna un dict directamente
+            extracted_data = result.get("data", result)
+            if isinstance(extracted_data, dict):
+                extracted_fields = sum(1 for v in extracted_data.values() if v)
 
         # 7) Marcar transformación como completada
         await complete_transformation_log(
             user_id=user_id,
             log_id=log_id,
             extracted_fields=extracted_fields,
-            extracted_data=result.get("data") if result else None
+            extracted_data=extracted_data
         )
 
         print(f"[Process Document] Transformación completada: {log_id}, campos: {extracted_fields}/{total_fields}")

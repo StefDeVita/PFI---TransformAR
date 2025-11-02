@@ -808,24 +808,60 @@ async def telegram_download_file_endpoint(file_id: str, user_id: str = Depends(g
 
     El frontend puede usarlo en un <img>, <video>, <a download>, etc.
     """
+    print(f"[Telegram File] Solicitud de descarga - file_id: {file_id}, user_id: {user_id}")
+
     try:
         cred_manager = ExternalCredentialsManager()
         telegram_creds = await cred_manager.get_credential(user_id, "telegram")
 
         if not telegram_creds:
+            print(f"[Telegram File] Error: Usuario {user_id} no tiene credenciales de Telegram")
             raise HTTPException(
                 status_code=400,
                 detail="No has conectado tu cuenta de Telegram. Usa POST /integration/telegram/connect primero."
             )
 
+        print(f"[Telegram File] Descargando archivo con file_id: {file_id}")
+
         # Descargar archivo usando credenciales
         file_data = telegram_download_file(telegram_creds, file_id)
 
         if not file_data:
-            raise HTTPException(404, f"No se pudo descargar el archivo con ID: {file_id}")
+            print(f"[Telegram File] Error: No se pudo descargar el archivo con file_id: {file_id}")
+            raise HTTPException(
+                404,
+                "No se pudo descargar el archivo de Telegram. "
+                "Posibles causas: (1) El bot_token de Telegram es inválido, "
+                "(2) El file_id es inválido o el archivo ha expirado, "
+                "(3) El bot no tiene permisos para acceder al archivo. "
+                "Por favor, verifica las credenciales de Telegram en la configuración."
+            )
 
-        # Tipo de contenido genérico
+        print(f"[Telegram File] Archivo descargado exitosamente, tamaño: {len(file_data)} bytes")
+
+        # Verificar que el archivo descargado sea binario y no HTML
+        if file_data.startswith(b'<!DOCTYPE') or file_data.startswith(b'<html'):
+            print(f"[Telegram File] ERROR: Se descargó HTML en lugar de archivo binario")
+            print(f"[Telegram File] Primeros 200 bytes: {file_data[:200]}")
+            raise HTTPException(500, "Error: Se recibió HTML en lugar del archivo. Esto puede ser causado por ngrok o un proxy intermedio.")
+
+        # Determinar tipo de contenido basado en los primeros bytes (magic numbers)
         media_type = "application/octet-stream"
+        if file_data.startswith(b'%PDF'):
+            media_type = "application/pdf"
+            print(f"[Telegram File] Tipo detectado: PDF")
+        elif file_data.startswith(b'\xFF\xD8\xFF'):
+            media_type = "image/jpeg"
+            print(f"[Telegram File] Tipo detectado: JPEG")
+        elif file_data.startswith(b'\x89PNG'):
+            media_type = "image/png"
+            print(f"[Telegram File] Tipo detectado: PNG")
+        elif file_data.startswith(b'GIF8'):
+            media_type = "image/gif"
+            print(f"[Telegram File] Tipo detectado: GIF")
+        elif file_data.startswith(b'RIFF') and file_data[8:12] == b'WEBP':
+            media_type = "image/webp"
+            print(f"[Telegram File] Tipo detectado: WebP")
 
         # Crear stream de bytes
         file_stream = io.BytesIO(file_data)
@@ -842,9 +878,10 @@ async def telegram_download_file_endpoint(file_id: str, user_id: str = Depends(g
     except HTTPException:
         raise
     except ValueError as e:
+        print(f"[Telegram File] ValueError: {str(e)}")
         raise HTTPException(500, f"Error de configuración: {str(e)}")
     except Exception as e:
-        print(f"[Telegram File] Error descargando archivo {file_id}: {e}")
+        print(f"[Telegram File] Exception: {str(e)}")
         import traceback
         traceback.print_exc()
         raise HTTPException(500, f"Error descargando archivo: {str(e)}")

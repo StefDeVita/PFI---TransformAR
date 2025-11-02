@@ -421,7 +421,7 @@ async def process_document_with_template(
         template_name = gtpl.name if hasattr(gtpl, 'name') else template_id
 
         # Contar campos totales de la plantilla
-        total_fields = len(gtpl.fields) if hasattr(gtpl, 'fields') else 0
+        total_fields = len(gtpl.columns) if hasattr(gtpl, 'columns') else 0
 
         # 3) Crear log de transformación
         log_id = await create_transformation_log(

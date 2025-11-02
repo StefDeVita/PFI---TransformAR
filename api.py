@@ -379,14 +379,20 @@ async def process_document_with_template(
     # Validar que sea un PDF válido (verificar header)
     try:
         with open(tmp_path, 'rb') as f:
-            header = f.read(5)
-            if not header.startswith(b'%PDF-'):
-                try:
-                    pathlib.Path(tmp_path).unlink(missing_ok=True)
-                except:
-                    pass
-                raise HTTPException(400, f"El archivo no es un PDF válido. Header encontrado: {header[:20]}")
-            print(f"[Process Document] PDF validado correctamente, header: {header}")
+                # --- Validar tipo de archivo ---
+                header = content[:8]
+
+                if header.startswith(b'%PDF-'):
+                    file_type = "pdf"
+                elif header.startswith(b'\x89PNG'):
+                    file_type = "png"
+                elif header.startswith(b'\xFF\xD8\xFF'):
+                    file_type = "jpeg"
+                else:
+                    raise HTTPException(400, f"Tipo de archivo no soportado. Solo se admiten PDF, PNG o JPG.")
+
+                print(f"[Process Document] Tipo detectado: {file_type.upper()}")
+
     except HTTPException:
         raise
     except Exception as e:

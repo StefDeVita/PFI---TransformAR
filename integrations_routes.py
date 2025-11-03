@@ -241,6 +241,7 @@ async def connect_gmail_callback(
         return RedirectResponse(url=redirect_url, status_code=302)
 
 
+
 @router.delete("/gmail/disconnect", response_model=IntegrationResponse)
 async def disconnect_gmail(user_id: str = Depends(get_current_user)):
     """Desconecta Gmail del usuario actual"""

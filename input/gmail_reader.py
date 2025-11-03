@@ -15,6 +15,84 @@ CREDENTIALS_FILE = BASE_DIR / "input" / "credentials.json"
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
 
+# ========== NUEVAS FUNCIONES: USO CON CREDENCIALES DE FIRESTORE ==========
+
+def authenticate_gmail_from_credentials(credentials_dict: Dict[str, Any]) -> Any:
+    """
+    Crea un servicio de Gmail usando credenciales desde Firestore.
+
+    Args:
+        credentials_dict: Diccionario con las credenciales del usuario
+                         {
+                             "token": "...",
+                             "refresh_token": "...",
+                             "token_uri": "...",
+                             "client_id": "...",
+                             "client_secret": "...",
+                             "scopes": [...]
+                         }
+
+    Returns:
+        Servicio de Gmail API autenticado
+    """
+    # Reconstruir credenciales desde el diccionario
+    creds = Credentials(
+        token=credentials_dict.get("token"),
+        refresh_token=credentials_dict.get("refresh_token"),
+        token_uri=credentials_dict.get("token_uri"),
+        client_id=credentials_dict.get("client_id"),
+        client_secret=credentials_dict.get("client_secret"),
+        scopes=credentials_dict.get("scopes", SCOPES)
+    )
+
+    # Si el token está expirado, refrescarlo
+    if creds.expired and creds.refresh_token:
+        try:
+            creds.refresh(Request())
+        except Exception as e:
+            print(f"[Gmail] Error refrescando token: {e}")
+            raise ValueError("El token de Gmail ha expirado y no se pudo refrescar. Por favor reconecta Gmail.")
+
+    service = build("gmail", "v1", credentials=creds)
+    return service
+
+
+def list_messages_from_credentials(credentials_dict: Dict[str, Any], max_results=10) -> List[Dict[str, Any]]:
+    """
+    Lista últimos correos usando credenciales desde Firestore.
+
+    Args:
+        credentials_dict: Credenciales del usuario desde Firestore
+        max_results: Número máximo de mensajes a devolver
+
+    Returns:
+        Lista de mensajes con id, from, subject
+    """
+    service = authenticate_gmail_from_credentials(credentials_dict)
+    return list_messages(service, max_results)
+
+
+def get_message_content_from_credentials(
+    credentials_dict: Dict[str, Any],
+    msg_id: str
+) -> Dict[str, Any]:
+    """
+    Obtiene contenido de un mensaje usando credenciales desde Firestore.
+
+    Args:
+        credentials_dict: Credenciales del usuario desde Firestore
+        msg_id: ID del mensaje de Gmail
+
+    Returns:
+        Diccionario con text y attachments
+    """
+    service = authenticate_gmail_from_credentials(credentials_dict)
+    return get_message_content(service, msg_id)
+
+
+# ========== FUNCIONES ANTIGUAS (DEPRECATED - Solo para compatibilidad) ==========
+
+
 def authenticate_gmail() -> Any:
     """
     Maneja el flujo OAuth para conectarse a la API de Gmail.

@@ -4,6 +4,7 @@ Soporta: Gmail, Outlook, WhatsApp, Telegram
 """
 
 from fastapi import APIRouter, HTTPException, Header, Depends
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 import os
@@ -225,16 +226,20 @@ async def connect_gmail_callback(
         success = await save_gmail_credentials(user_id, token_data, email)
 
         if success:
-            return {
-                "success": True,
-                "message": f"Gmail conectado exitosamente: {email}",
-                "redirect": os.getenv("FRONTEND_URL", "http://localhost:3000") + "/integrations?success=gmail"
-            }
+            frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+            redirect_url = f"{frontend_url}/settings?integration=gmail&status=success"
+            return RedirectResponse(url=redirect_url, status_code=302)
         else:
-            raise HTTPException(status_code=500, detail="Error guardando credenciales")
+            frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+            redirect_url = f"{frontend_url}/settings?integration=gmail&status=error&message=Error+guardando+credenciales"
+            return RedirectResponse(url=redirect_url, status_code=302)
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error en OAuth callback: {str(e)}")
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+        error_message = str(e).replace(" ", "+")
+        redirect_url = f"{frontend_url}/settings?integration=gmail&status=error&message={error_message}"
+        return RedirectResponse(url=redirect_url, status_code=302)
+
 
 
 @router.delete("/gmail/disconnect", response_model=IntegrationResponse)
@@ -429,16 +434,19 @@ async def connect_outlook_callback(
         )
 
         if success:
-            return {
-                "success": True,
-                "message": f"Outlook conectado exitosamente: {email}",
-                "redirect": os.getenv("FRONTEND_URL", "http://localhost:3000") + "/integrations?success=outlook"
-            }
+            frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+            redirect_url = f"{frontend_url}/settings?integration=outlook&status=success"
+            return RedirectResponse(url=redirect_url, status_code=302)
         else:
-            raise HTTPException(status_code=500, detail="Error guardando credenciales")
+            frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+            redirect_url = f"{frontend_url}/settings?integration=outlook&status=error&message=Error+guardando+credenciales"
+            return RedirectResponse(url=redirect_url, status_code=302)
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error en OAuth callback: {str(e)}")
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+        error_message = str(e).replace(" ", "+")
+        redirect_url = f"{frontend_url}/settings?integration=outlook&status=error&message={error_message}"
+        return RedirectResponse(url=redirect_url, status_code=302)
 
 
 @router.delete("/outlook/disconnect", response_model=IntegrationResponse)

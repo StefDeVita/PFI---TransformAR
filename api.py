@@ -34,7 +34,7 @@ from input.telegram_reader import (
     authenticate_telegram, list_messages_telegram, get_message_content as telegram_get,
     download_file_from_credentials as telegram_download_file
 )
-from auth import authenticate_user, create_access_token, create_password_reset_token, send_password_reset_email, decode_jwt_token
+from auth import authenticate_user, create_access_token, create_password_reset_token, send_password_reset_email, decode_jwt_token, get_user_by_id
 from integrations_routes import router as integrations_router
 from external_credentials import ExternalCredentialsManager
 from whatsapp_messages import save_whatsapp_message, get_whatsapp_messages, find_user_by_whatsapp_number
@@ -183,6 +183,11 @@ class LoginResponse(BaseModel):
 
 class RecoverPasswordRequest(BaseModel):
     email: str = Field(..., description="Email address to send recovery link to")
+
+
+class UserSubscriptionPreferencesResponse(BaseModel):
+    mailing: bool = Field(..., description="User is subscribed to mailing channel")
+    messaging: bool = Field(..., description="User is subscribed to messaging channel")
 
 
 # --------- Helpers ---------
@@ -370,6 +375,35 @@ async def recover_password(request: RecoverPasswordRequest):
         "success": True,
         "message": "If the email exists in our system, a recovery link has been sent."
     }
+
+
+@app.get("/auth/subscription-preferences", response_model=UserSubscriptionPreferencesResponse, summary="Get user subscription preferences")
+async def get_subscription_preferences(user_id: str = Depends(get_current_user)):
+    """
+    Get user's subscription preferences for mailing and messaging channels.
+
+    Returns:
+        - mailing: boolean indicating if user is subscribed to mailing channel
+        - messaging: boolean indicating if user is subscribed to messaging channel
+
+    These preferences indicate which communication channels the user has enabled.
+    """
+    user = await get_user_by_id(user_id)
+
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="Usuario no encontrado"
+        )
+
+    # Obtener campos mailing y messaging, por defecto False si no existen
+    mailing = user.get("mailing", False)
+    messaging = user.get("messaging", False)
+
+    return UserSubscriptionPreferencesResponse(
+        mailing=mailing,
+        messaging=messaging
+    )
 
 
 # Subida de documento manual

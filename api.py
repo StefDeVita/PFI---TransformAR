@@ -34,7 +34,7 @@ from input.telegram_reader import (
     authenticate_telegram, list_messages_telegram, get_message_content as telegram_get,
     download_file_from_credentials as telegram_download_file
 )
-from auth import authenticate_user, create_access_token, create_password_reset_token, send_password_reset_email, decode_jwt_token
+from auth import authenticate_user, create_access_token, create_password_reset_token, send_password_reset_email, decode_jwt_token, get_user_by_id
 from integrations_routes import router as integrations_router
 from external_credentials import ExternalCredentialsManager
 from whatsapp_messages import save_whatsapp_message, get_whatsapp_messages, find_user_by_whatsapp_number
@@ -183,6 +183,11 @@ class LoginResponse(BaseModel):
 
 class RecoverPasswordRequest(BaseModel):
     email: str = Field(..., description="Email address to send recovery link to")
+
+
+class UserSubscriptionsResponse(BaseModel):
+    mailing: bool = Field(default=False, description="Usuario suscrito a canal de mailing")
+    messaging: bool = Field(default=False, description="Usuario suscrito a canal de messaging")
 
 
 # --------- Helpers ---------
@@ -370,6 +375,26 @@ async def recover_password(request: RecoverPasswordRequest):
         "success": True,
         "message": "If the email exists in our system, a recovery link has been sent."
     }
+
+
+@app.get("/user/subscriptions", response_model=UserSubscriptionsResponse, summary="Get user channel subscriptions")
+async def get_user_subscriptions(user_id: str = Depends(get_current_user)):
+    """
+    Obtiene los campos de suscripción del usuario autenticado.
+
+    Returns:
+        - mailing: bool - Usuario suscrito a canal de mailing (email)
+        - messaging: bool - Usuario suscrito a canal de messaging (WhatsApp/Telegram)
+    """
+    user = await get_user_by_id(user_id)
+
+    if not user:
+        raise HTTPException(404, "Usuario no encontrado")
+
+    return UserSubscriptionsResponse(
+        mailing=user.get("mailing", False),
+        messaging=user.get("messaging", False)
+    )
 
 
 # Subida de documento manual
